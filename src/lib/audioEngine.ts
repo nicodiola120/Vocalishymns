@@ -30,16 +30,16 @@ export class AudioEngine {
     // AudioContext will be initialized on user interaction (Play)
   }
 
-  private initAudio() {
+  private async initAudio() {
     if (!this.ctx) {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       this.ctx = new AudioCtx();
       this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.value = this.masterVolume;
+      this.masterGain.gain.setValueAtTime(this.masterVolume, this.ctx.currentTime);
       this.masterGain.connect(this.ctx.destination);
     }
     if (this.ctx.state === "suspended") {
-      this.ctx.resume();
+      await this.ctx.resume();
     }
   }
 
@@ -54,7 +54,7 @@ export class AudioEngine {
 
   // Pre-decodes all voices of a hymn and caches them
   public async loadHymn(hymn: Hymn, onProgress?: (p: number) => void): Promise<void> {
-    this.initAudio();
+    await this.initAudio();
     this.stop();
     this.activeHymn = hymn;
     this.duration = hymn.duration;
@@ -80,7 +80,7 @@ export class AudioEngine {
           const decoded = await ctx.decodeAudioData(bufferCopy);
           this.decodedBuffers.set(voice.id, decoded);
         } catch (e) {
-          console.error(`Error decoding voice ${voice.name}:`, e);
+          console.warn(`[AudioEngine] Failed to decode voice "${voice.name}":`, e);
         }
       }
       loadedCount++;
@@ -95,8 +95,11 @@ export class AudioEngine {
         maxDur = buf.duration;
       }
     }
+
     if (maxDur > 0) {
       this.duration = maxDur;
+    } else if (hymn.duration > 0) {
+      this.duration = hymn.duration;
     }
 
     this.onStateChange?.();
@@ -106,12 +109,15 @@ export class AudioEngine {
     this.activeHymn = hymn;
   }
 
-  public play() {
-    this.initAudio();
+  public async play() {
+    await this.initAudio();
     if (!this.activeHymn || this.isPlaying) return;
 
     const ctx = this.ctx!;
     const master = this.masterGain!;
+
+    // Ensure context is running
+    if (ctx.state === 'suspended') await ctx.resume();
 
     // If we've reached the end, reset offset
     if (this.startOffset >= this.duration) {
@@ -120,6 +126,8 @@ export class AudioEngine {
 
     this.isPlaying = true;
     this.startTime = ctx.currentTime;
+
+    let hasStartedAny = false;
 
     // Start all channels
     for (const voice of this.activeHymn.voices) {
@@ -171,7 +179,18 @@ export class AudioEngine {
       this.updateVoiceGain(voice);
 
       // Start the source
-      source.start(0, this.startOffset);
+      try {
+        source.start(0, this.startOffset);
+        hasStartedAny = true;
+      } catch (e) {
+        console.error(`[AudioEngine] Failed to start voice "${voice.name}":`, e);
+      }
+    }
+
+    if (!hasStartedAny) {
+       this.isPlaying = false;
+       console.warn("[AudioEngine] No voices were available to play.");
+       return;
     }
 
     // Watch for ended event on sources (if not looping)
@@ -180,7 +199,7 @@ export class AudioEngine {
       const firstSource = Array.from(this.sources.values())[0];
       firstSource.onended = () => {
         // Only trigger if we are still playing and reached the actual end
-        if (this.isPlaying && this.getCurrentTime() >= this.duration - 0.1) {
+        if (this.isPlaying && this.getCurrentTime() >= this.duration - 0.2) {
           this.stop();
           this.onPlaybackEnded?.();
         }

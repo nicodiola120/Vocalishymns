@@ -35,33 +35,41 @@ export const HymnList: React.FC<HymnListProps> = ({
   // Cloud repos state & refresh
   const [onlineHymns, setOnlineHymns] = useState<OnlineHymnItem[]>([]);
   const [isRefreshingCloud, setIsRefreshingCloud] = useState(false);
+  const [hasRefreshedOnce, setHasRefreshedOnce] = useState(false);
+
+  // Auto-refresh when switching to online tab for the first time
+  React.useEffect(() => {
+    if (activeTab === "online" && !hasRefreshedOnce && !isRefreshingCloud) {
+      handleRefreshCloud();
+    }
+  }, [activeTab, hasRefreshedOnce, isRefreshingCloud]);
 
   const handleRefreshCloud = async () => {
     setIsRefreshingCloud(true);
     try {
-      const { fetchCloudRepositoryFiles, fetchGitHubRepositoryFiles } = await import("../lib/onlineRepository");
-      const [driveFiles, githubFiles] = await Promise.allSettled([
-        fetchCloudRepositoryFiles(),
-        fetchGitHubRepositoryFiles(),
-      ]);
+      const { fetchGitHubRepositoryFiles } = await import("../lib/onlineRepository");
 
-      const merged: OnlineHymnItem[] = [
-        ...(driveFiles.status === "fulfilled" ? driveFiles.value : []),
-        ...(githubFiles.status === "fulfilled" ? githubFiles.value : []),
-      ];
+      const githubFiles = await fetchGitHubRepositoryFiles();
 
-      if (merged.length === 0) {
-        const errors = [driveFiles, githubFiles]
-          .filter((r) => r.status === "rejected")
-          .map((r) => (r as PromiseRejectedResult).reason?.message || "Unknown error");
-        throw new Error(errors.join("; ") || "No items found from any cloud source.");
+      // Set the online hymns to ONLY what was fetched from GitHub
+      setOnlineHymns(githubFiles);
+      setHasRefreshedOnce(true);
+
+      if (githubFiles.length === 0) {
+        window.dispatchEvent(new CustomEvent("vocalis-toast", {
+          detail: { type: "info", message: "Cloud refresh complete. No new ZIP files found in the repository." }
+        }));
+      } else {
+        window.dispatchEvent(new CustomEvent("vocalis-toast", {
+          detail: { type: "success", message: `Found ${githubFiles.length} hymns in the cloud!` }
+        }));
       }
-
-      setOnlineHymns(merged);
     } catch (err: any) {
       console.error(err);
       // Emit custom event so parent can show toast instead of alert
-      window.dispatchEvent(new CustomEvent("vocalis-toast", { detail: { type: "error", message: err.message || "Failed to refresh cloud repository." } }));
+      window.dispatchEvent(new CustomEvent("vocalis-toast", {
+        detail: { type: "error", message: err.message || "Failed to refresh cloud repository." }
+      }));
     } finally {
       setIsRefreshingCloud(false);
     }

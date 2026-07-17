@@ -246,7 +246,7 @@ export default function App() {
 
         // Fetch version manifest from GitHub Pages
         const response = await fetch(
-          "https://nicodiola120.github.io/vocalis/version.json",
+          "https://nicodiola120.github.io/Vocalishymns/version.json",
           { cache: "no-store" }
         );
         if (!response.ok) return;
@@ -372,6 +372,7 @@ export default function App() {
       }
     } catch (err) {
       console.error("Failed to load chosen hymn track:", err);
+      pushToast("error", "Failed to decode audio tracks. The file might be corrupted or in an unsupported format.");
     } finally {
       setIsLoadingActiveHymn(false);
     }

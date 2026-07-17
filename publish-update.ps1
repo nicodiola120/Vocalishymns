@@ -32,7 +32,7 @@ Write-Host "`n[1/5] Building web assets..." -ForegroundColor Green
 if ($LASTEXITCODE -ne 0) { throw "Build failed" }
 
 # 2. Create ZIP bundle
-$bundleId = "vocalis-$Version-$(Get-Date -Format 'yyyyMMddHHmmss')"
+$bundleId = "Vocalishymns-$Version-$(Get-Date -Format 'yyyyMMddHHmmss')"
 $zipPath = "$PSScriptRoot\dist\$bundleId.zip"
 Write-Host "`n[2/5] Creating bundle ZIP: $bundleId.zip" -ForegroundColor Green
 
@@ -55,7 +55,7 @@ Write-Host "`n[3/5] Generating version manifest..." -ForegroundColor Green
 $manifest = @{
     version = $Version
     bundleId = $bundleId
-    bundleUrl = "https://nicodiola120.github.io/vocalis/$bundleId.zip"
+    bundleUrl = "https://nicodiola120.github.io/Vocalishymns/$bundleId.zip"
     timestamp = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
 } | ConvertTo-Json -Depth 3
 
@@ -68,10 +68,10 @@ Copy-Item $zipPath "$PSScriptRoot\dist\$bundleId.zip" -Force
 
 # 5. Push to gh-pages branch
 Write-Host "`n[4/5] Deploying to GitHub Pages..." -ForegroundColor Green
-$tempDir = "$env:TEMP\vocalis-ghpages-$(Get-Random)"
+$tempDir = "$env:TEMP\Vocalishymns-ghpages-$(Get-Random)"
 
 try {
-    git clone --branch gh-pages "https://github.com/nicodiola120/vocalis.git" $tempDir 2>&1
+    git clone --branch gh-pages "https://github.com/nicodiola120/Vocalishymns.git" $tempDir 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  gh-pages branch not found, creating..." -ForegroundColor Yellow
         git checkout --orphan gh-pages 2>&1
@@ -99,8 +99,8 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "`n[5/5] Published successfully!" -ForegroundColor Green
     Write-Host "  Version: $Version" -ForegroundColor Cyan
     Write-Host "  Bundle:  $bundleId.zip" -ForegroundColor Cyan
-    Write-Host "  URL:     https://nicodiola120.github.io/vocalis/$bundleId.zip" -ForegroundColor Cyan
-    Write-Host "  Manifest: https://nicodiola120.github.io/vocalis/version.json" -ForegroundColor Cyan
+    Write-Host "  URL:     https://nicodiola120.github.io/Vocalishymns/$bundleId.zip" -ForegroundColor Cyan
+    Write-Host "  Manifest: https://nicodiola120.github.io/Vocalishymns/version.json" -ForegroundColor Cyan
 } else {
     Write-Host "`nFailed to push to GitHub. Check your credentials." -ForegroundColor Red
 }

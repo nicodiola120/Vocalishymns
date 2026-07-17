@@ -380,14 +380,14 @@ export async function fetchCloudRepositoryFiles(): Promise<OnlineHymnItem[]> {
   return Array.from(foundItems.values()).map((item) => ({
     id: item.id,
     name: item.name,
-    fileSize: "Pending...", 
+    fileSize: "Cloud",
     downloadCount: 0,
     lyrics: "Cloud Repository",
     music: "Google Drive File",
     arranger: "External Sync",
     info: `Hymn package retrieved dynamically from Google Drive. Mapped File ID: ${item.driveFileId}`,
     tags: ["Cloud", "Dynamic"],
-    duration: 0, 
+    duration: 180,
     driveFileId: item.driveFileId,
     notesData: {
       soprano: [],
@@ -399,7 +399,7 @@ export async function fetchCloudRepositoryFiles(): Promise<OnlineHymnItem[]> {
 }
 
 const GITHUB_REPOS = [
-  { owner: "nicodiola120", repo: "vocalis", branch: "main" },
+  { owner: "nicodiola120", repo: "Vocalishymns", branch: "main" },
 ];
 
 export async function fetchGitHubRepositoryFiles(): Promise<OnlineHymnItem[]> {
@@ -407,16 +407,25 @@ export async function fetchGitHubRepositoryFiles(): Promise<OnlineHymnItem[]> {
 
   for (const { owner, repo, branch } of GITHUB_REPOS) {
     try {
-      const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/?ref=${branch}`;
-      const response = await fetch(apiUrl);
+      const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents?ref=${branch}`;
+      const response = await fetch(apiUrl, { cache: "no-store" });
       if (!response.ok) {
-        console.warn(`GitHub API error for ${owner}/${repo}: ${response.statusText}`);
-        continue;
+        if (response.status === 404) {
+          throw new Error(`GitHub repository "${repo}" not found. Ensure it is PUBLIC and the name is correct.`);
+        }
+        if (response.status === 403) {
+          throw new Error(`GitHub access denied for "${repo}". This usually happens if the repo is private or API rate limited.`);
+        }
+        throw new Error(`GitHub API Error: ${response.statusText} (${response.status})`);
       }
 
       const contents: Array<{ name: string; type: string; download_url: string; size: number }> = await response.json();
 
       const zipFiles = contents.filter((f) => f.type === "file" && f.name.toLowerCase().endsWith(".zip"));
+
+      if (zipFiles.length === 0) {
+        console.warn(`[GitHubSync] No .zip files found in the root of ${owner}/${repo}`);
+      }
 
       for (const file of zipFiles) {
         let name = file.name.replace(/\.zip$/i, "");
@@ -440,7 +449,7 @@ export async function fetchGitHubRepositoryFiles(): Promise<OnlineHymnItem[]> {
           arranger: "GitHub Sync",
           info: `Hymn package retrieved from GitHub: ${owner}/${repo}. File: ${file.name}`,
           tags: ["Cloud", "GitHub"],
-          duration: 0,
+          duration: 180,
           githubDownloadUrl: file.download_url,
           notesData: {
             soprano: [],
