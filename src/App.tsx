@@ -4,12 +4,13 @@ import { player } from "./lib/audioEngine";
 import { getAllHymns, saveHymn, deleteHymn } from "./lib/db";
 import { generateDemoHymns } from "./lib/demoHymns";
 import { downloadAndSynthesizeOnlineHymn, OnlineHymnItem } from "./lib/onlineRepository";
-import { pickFolder, getStoredHandle, listZipFiles, writeZipToFolder, readZipFromFolder, deleteZipFromFolder } from "./lib/folderManager";
+import { pickFolder, pickZipFiles, getStoredHandle, listZipFiles, writeZipToFolder, readZipFromFolder, deleteZipFromFolder } from "./lib/folderManager";
 import { HymnList } from "./components/HymnList";
 import { PlaybackControls } from "./components/PlaybackControls";
 import { ChannelStrip } from "./components/ChannelStrip";
 import { Dropzone } from "./components/Dropzone";
 import { Toast, ToastMessage } from "./components/Toast";
+import { BannerAd } from "./components/BannerAd";
 import { motion, AnimatePresence } from "motion/react";
 import { Sliders, Volume2, Plus, Info, RefreshCw, X, Edit3, Music, AlertTriangle, Folder, FolderOpen, ArrowRight, Check, Play, Pause, Square, Repeat } from "lucide-react";
 import { LiveUpdate } from "@capawesome/capacitor-live-update";
@@ -162,14 +163,13 @@ export default function App() {
   // Assign or change the filesystem folder
   const handlePickFolder = async () => {
     try {
-      const handle = await pickFolder();
-      if (!handle) return;
-      setFolderHandle(handle);
-      setAssignedFolderName(handle.name);
-      localStorage.setItem("vocalis_assigned_folder_name", handle.name);
-      await syncFolderToLibrary(handle);
+      const files = await pickZipFiles();
+      if (!files || files.length === 0) return;
+      for (const file of files) {
+        await handleFileAccepted(file);
+      }
     } catch (err: any) {
-      pushToast("error", err.message || "Failed to select folder.");
+      pushToast("error", err.message || "Failed to pick files.");
     }
   };
 
@@ -282,9 +282,7 @@ export default function App() {
   useEffect(() => {
     let animFrameId: number;
     const tick = () => {
-      if (player.getPlaybackState().isPlaying) {
-        setCurrentTime(player.getCurrentTime());
-      }
+      setCurrentTime(player.getCurrentTime());
       animFrameId = requestAnimationFrame(tick);
     };
     animFrameId = requestAnimationFrame(tick);
@@ -604,6 +602,26 @@ export default function App() {
     await saveHymn(updatedHymn);
   };
 
+  const handleResetMixer = async () => {
+    if (!activeHymn) return;
+    const defaultVoices = activeHymn.voices.map((v) => ({
+      ...v,
+      volume: 0.8,
+      isMuted: false,
+      isSolo: false,
+      pan: 0,
+    }));
+    const updatedHymn = { ...activeHymn, voices: defaultVoices };
+    player.updateActiveHymn(updatedHymn);
+    player.updateAllVoiceGains();
+    defaultVoices.forEach((v) => player.updateVoicePan(v));
+    setActiveHymn(updatedHymn);
+    await saveHymn(updatedHymn);
+    setMasterVolume(0.8);
+    player.setMasterVolume(0.8);
+    pushToast("success", "Mixer reset to defaults");
+  };
+
   const handleDownloadOnlineHymn = async (item: OnlineHymnItem, onProgress: (msg: string) => void) => {
     try {
       const result = await downloadAndSynthesizeOnlineHymn(item, onProgress);
@@ -699,7 +717,7 @@ export default function App() {
                 activeHymnId={activeHymn?.id || null}
                 onSelectHymn={(h) => { handleSelectHymn(h); setShowHymnSidebar(false); }}
                 onDeleteHymn={handleDeleteHymn}
-                onAddClick={() => setShowImportModal(true)}
+                onAddClick={handlePickFolder}
                 onResetDemo={() => setShowResetConfirmModal(true)}
                 assignedFolderName={assignedFolderName}
                 onFolderClick={handlePickFolder}
@@ -765,25 +783,28 @@ export default function App() {
             </div>
           ) : (
             /* Blank state if no tracks are chosen */
-            <div className="flex-1 flex flex-col items-center justify-center p-12 max-w-md mx-auto text-center gap-6">
-              <div className="p-4 bg-white/5 rounded-3xl border border-white/10 text-slate-400 shadow-xl">
-                <Music className="h-10 w-10 text-blue-400 animate-pulse" />
+            <div className="flex flex-col flex-1">
+              <div className="flex-1 flex flex-col items-center justify-center p-12 max-w-md mx-auto text-center gap-6">
+                <div className="p-4 bg-white/5 rounded-3xl border border-white/10 text-slate-400 shadow-xl">
+                  <Music className="h-10 w-10 text-blue-400 animate-pulse" />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <h2 className="font-display font-bold text-slate-200 text-lg">
+                    No Track Selected
+                  </h2>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    Select a hymn track from the sidebar to start practicing, or import a zipped choir pack to load custom multi-channel recordings.
+                  </p>
+                </div>
+                <button
+                  id="btn-blank-library"
+                  onClick={() => setShowHymnSidebar(true)}
+                  className="py-2.5 px-5 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs border border-blue-400/20 shadow-md shadow-blue-600/10 cursor-pointer"
+                >
+                  Open Library
+                </button>
               </div>
-              <div className="flex flex-col gap-1.5">
-                <h2 className="font-display font-bold text-slate-200 text-lg">
-                  No Track Selected
-                </h2>
-                <p className="text-xs text-slate-500 leading-relaxed">
-                  Select a hymn track from the sidebar to start practicing, or import a zipped choir pack to load custom multi-channel recordings.
-                </p>
-              </div>
-              <button
-                id="btn-blank-import"
-                onClick={() => setShowImportModal(true)}
-                className="py-2.5 px-5 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs border border-blue-400/20 shadow-md shadow-blue-600/10 cursor-pointer"
-              >
-                Import ZIP Bundle
-              </button>
+              <BannerAd />
             </div>
           )}
 
@@ -822,36 +843,36 @@ export default function App() {
                     <span>{formatTime(duration)}</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex items-center gap-1 shrink-0">
                   {/* Play / Pause toggle */}
                   <button
                     onClick={() => isPlaying ? player.pause() : player.play()}
-                    className={`p-2 rounded-lg border cursor-pointer transition-all ${
+                    className={`p-1.5 rounded-lg border cursor-pointer transition-all ${
                       isPlaying
                         ? "bg-blue-600 border-blue-500 text-white"
                         : "bg-white/5 border-white/5 text-slate-400 hover:text-white hover:bg-white/10"
                     }`}
                   >
-                    {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                    {isPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
                   </button>
                   {/* Stop */}
                   <button
                     onClick={() => player.stop()}
-                    className="p-2 rounded-lg border bg-white/5 border-white/5 text-slate-400 hover:text-white hover:bg-white/10 cursor-pointer transition-all"
+                    className="p-1.5 rounded-lg border bg-white/5 border-white/5 text-slate-400 hover:text-white hover:bg-white/10 cursor-pointer transition-all"
                   >
-                    <Square className="h-4 w-4" />
+                    <Square className="h-3.5 w-3.5" />
                   </button>
                   {/* Loop toggle */}
                   <button
                     onClick={() => player.setLooping(!isLooping)}
-                    className={`p-2 rounded-lg border cursor-pointer transition-all ${
+                    className={`p-1.5 rounded-lg border cursor-pointer transition-all ${
                       isLooping
                         ? "bg-blue-500/20 border-blue-500/30 text-blue-400"
                         : "bg-white/5 border-white/5 text-slate-400 hover:text-white hover:bg-white/10"
                     }`}
                     title="Toggle Loop"
                   >
-                    <Repeat className="h-4 w-4" />
+                    <Repeat className="h-3.5 w-3.5" />
                   </button>
                   {/* Master volume */}
                   <Volume2 className="h-3.5 w-3.5 text-slate-500 shrink-0 hidden landscape:block" />
@@ -866,12 +887,21 @@ export default function App() {
                   />
                 </div>
                 <button
+                  id="btn-reset-mixer"
+                  onClick={handleResetMixer}
+                  className="p-1.5 rounded-lg bg-white/5 hover:bg-amber-500/20 text-slate-400 hover:text-amber-400 border border-white/10 hover:border-amber-500/30 cursor-pointer transition-all text-xs font-bold flex items-center gap-1 shrink-0"
+                  title="Reset all mixer settings"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">RESET</span>
+                </button>
+                <button
                   id="btn-close-mixer"
                   onClick={() => setShowMixer(false)}
-                  className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-slate-200 border border-white/10 cursor-pointer transition-all text-xs font-bold flex items-center gap-1.5 shrink-0"
+                  className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-slate-200 border border-white/10 cursor-pointer transition-all text-xs font-bold flex items-center gap-1 shrink-0"
                 >
-                  <X className="h-4 w-4" />
-                  CLOSE
+                  <X className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">CLOSE</span>
                 </button>
               </div>
               {/* Scrub bar below header in portrait only */}
@@ -906,7 +936,7 @@ export default function App() {
                   </div>
                 </div>
               </div>
-              <div className="flex-1 min-h-0 overflow-hidden px-4 lg:px-8 py-4 flex flex-col">
+              <div className="flex-1 min-h-0 overflow-hidden px-4 lg:px-8 py-4 flex landscape:flex-row flex-col">
                 <div className="flex flex-row gap-3 w-full max-w-7xl mx-auto flex-1 min-h-0">
                   {[...activeHymn.voices]
                     .sort((a, b) => getVoiceOrder(a.name) - getVoiceOrder(b.name))
@@ -923,6 +953,12 @@ export default function App() {
                         />
                       </div>
                     ))}
+                </div>
+                <div className="landscape:hidden">
+                  <BannerAd />
+                </div>
+                <div className="hidden landscape:flex">
+                  <BannerAd vertical />
                 </div>
               </div>
             </div>
@@ -956,7 +992,7 @@ export default function App() {
             max="1"
             step="0.01"
             value={masterVolume}
-            onChange={(e) => { player.setMasterVolume(parseFloat(e.target.value)); setMasterVolume(parseFloat(e.target.value)); }}
+            onInput={(e) => { const v = parseFloat(e.target.value); player.setMasterVolume(v); setMasterVolume(v); }}
             className="w-20 lg:w-28 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500
               [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer"
           />

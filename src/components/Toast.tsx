@@ -46,7 +46,7 @@ const ToastItem: React.FC<{ toast: ToastMessage; onDismiss: (id: string) => void
   useEffect(() => {
     const timer = setTimeout(() => onDismiss(toast.id), 4000);
     return () => clearTimeout(timer);
-  }, [toast.id, onDismiss]);
+  }, [toast.id]);
 
   return (
     <motion.div

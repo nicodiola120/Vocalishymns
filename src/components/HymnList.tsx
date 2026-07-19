@@ -1,7 +1,10 @@
 import React, { useState } from "react";
 import { Hymn } from "../types";
-import { Search, Music, Plus, RotateCw, Trash2, Database, Cloud, Download, Check, Loader2 } from "lucide-react";
+import { Search, Music, Plus, RotateCw, Trash2, Database, Cloud, Download, Check, Loader2, Tv } from "lucide-react";
 import { ONLINE_REPOSITORY, OnlineHymnItem } from "../lib/onlineRepository";
+import { isHymnUnlocked, unlockHymn, initializeAds } from "../lib/ads";
+import { AdPromptModal } from "./AdPromptModal";
+import { BannerAd } from "./BannerAd";
 
 interface HymnListProps {
   hymns: Hymn[];
@@ -32,6 +35,10 @@ export const HymnList: React.FC<HymnListProps> = ({
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState("");
 
+  // Ad-gated download state
+  const [adPromptHymnItem, setAdPromptHymnItem] = useState<OnlineHymnItem | null>(null);
+  const [adPromptShowing, setAdPromptShowing] = useState(false);
+
   // Cloud repos state & refresh
   const [onlineHymns, setOnlineHymns] = useState<OnlineHymnItem[]>([]);
   const [isRefreshingCloud, setIsRefreshingCloud] = useState(false);
@@ -43,6 +50,11 @@ export const HymnList: React.FC<HymnListProps> = ({
       handleRefreshCloud();
     }
   }, [activeTab, hasRefreshedOnce, isRefreshingCloud]);
+
+  // Initialize the ad system
+  React.useEffect(() => {
+    initializeAds();
+  }, []);
 
   const handleRefreshCloud = async () => {
     setIsRefreshingCloud(true);
@@ -86,6 +98,10 @@ export const HymnList: React.FC<HymnListProps> = ({
     if (!term) return true;
     if (h.name.toLowerCase().includes(term)) return true;
     if (h.tags && h.tags.some((tag) => tag.toLowerCase().includes(term))) return true;
+    if (h.lyrics && h.lyrics.toLowerCase().includes(term)) return true;
+    if (h.music && h.music.toLowerCase().includes(term)) return true;
+    if (h.arranger && h.arranger.toLowerCase().includes(term)) return true;
+    if (h.info && h.info.toLowerCase().includes(term)) return true;
     return false;
   });
 
@@ -94,6 +110,10 @@ export const HymnList: React.FC<HymnListProps> = ({
     if (!term) return true;
     if (h.name.toLowerCase().includes(term)) return true;
     if (h.tags && h.tags.some((tag) => tag.toLowerCase().includes(term))) return true;
+    if (h.lyrics && h.lyrics.toLowerCase().includes(term)) return true;
+    if (h.music && h.music.toLowerCase().includes(term)) return true;
+    if (h.arranger && h.arranger.toLowerCase().includes(term)) return true;
+    if (h.info && h.info.toLowerCase().includes(term)) return true;
     return false;
   });
 
@@ -101,7 +121,7 @@ export const HymnList: React.FC<HymnListProps> = ({
     return hymns.some((h) => h.name.toLowerCase() === name.toLowerCase());
   };
 
-  const handleDownloadClick = async (item: OnlineHymnItem) => {
+  const proceedDownload = async (item: OnlineHymnItem) => {
     if (downloadingId || !onDownloadOnlineHymn) return;
     setDownloadingId(item.id);
     setDownloadProgress("Initiating...");
@@ -109,6 +129,7 @@ export const HymnList: React.FC<HymnListProps> = ({
       await onDownloadOnlineHymn(item, (msg) => {
         setDownloadProgress(msg);
       });
+      unlockHymn(item.name);
       setDownloadProgress("Success!");
       setTimeout(() => {
         setDownloadingId(null);
@@ -123,6 +144,30 @@ export const HymnList: React.FC<HymnListProps> = ({
         setDownloadProgress("");
       }, 2000);
     }
+  };
+
+  const handleDownloadClick = async (item: OnlineHymnItem) => {
+    if (downloadingId || !onDownloadOnlineHymn) return;
+    const alreadyOwned = isAlreadyDownloaded(item.name) || isHymnUnlocked(item.name);
+    if (alreadyOwned) {
+      await proceedDownload(item);
+    } else {
+      setAdPromptHymnItem(item);
+      setAdPromptShowing(true);
+    }
+  };
+
+  const handleAdSuccess = () => {
+    setAdPromptShowing(false);
+    if (adPromptHymnItem) {
+      proceedDownload(adPromptHymnItem);
+    }
+    setAdPromptHymnItem(null);
+  };
+
+  const handleAdDismiss = () => {
+    setAdPromptShowing(false);
+    setAdPromptHymnItem(null);
   };
 
   return (
@@ -344,11 +389,19 @@ export const HymnList: React.FC<HymnListProps> = ({
                           <button
                             id={`download-btn-${item.id}`}
                             onClick={() => handleDownloadClick(item)}
-                            className="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 px-2.5 py-1 border border-blue-500/20 hover:border-blue-500/30 rounded-lg font-bold cursor-pointer transition-all"
-                            title="Download Choral Stem Bundle"
+                            className={`flex items-center gap-1 text-[10px] px-2.5 py-1 rounded-lg font-bold cursor-pointer transition-all ${
+                              isHymnUnlocked(item.name)
+                                ? "text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 hover:border-blue-500/30"
+                                : "text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 hover:border-amber-500/30"
+                            }`}
+                            title={isHymnUnlocked(item.name) ? "Download" : "Watch ad to unlock"}
                           >
-                            <Download className="h-3 w-3 shrink-0" />
-                            GET
+                            {isHymnUnlocked(item.name) ? (
+                              <Download className="h-3 w-3 shrink-0" />
+                            ) : (
+                              <Tv className="h-3 w-3 shrink-0" />
+                            )}
+                            {isHymnUnlocked(item.name) ? "GET" : "AD"}
                           </button>
                         )}
                       </div>
@@ -387,12 +440,24 @@ export const HymnList: React.FC<HymnListProps> = ({
       </div>
 
 
+      {/* Banner ad */}
+      <BannerAd />
+
       {/* Sidebar Bottom Utilities */}
       <div className="p-3 border-t border-white/5 flex items-center justify-center bg-transparent">
         <span className="text-[10px] font-mono text-slate-600">
           {hymns.length} hymn{hymns.length !== 1 ? "s" : ""} in library
         </span>
       </div>
+
+      {/* Ad prompt modal */}
+      {adPromptShowing && adPromptHymnItem && (
+        <AdPromptModal
+          hymName={adPromptHymnItem.name}
+          onAdSuccess={handleAdSuccess}
+          onDismiss={handleAdDismiss}
+        />
+      )}
     </div>
   );
 };

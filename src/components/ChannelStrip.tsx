@@ -13,7 +13,7 @@ interface ChannelStripProps {
   expanded?: boolean;
 }
 
-export const ChannelStrip: React.FC<ChannelStripProps> = ({
+const ChannelStripComponent: React.FC<ChannelStripProps> = ({
   voice,
   onVolumeChange,
   onMuteToggle,
@@ -23,8 +23,10 @@ export const ChannelStrip: React.FC<ChannelStripProps> = ({
   expanded,
 }) => {
   const sliderRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
   const [level, setLevel] = useState(0);
+  const [dragVolume, setDragVolume] = useState(voice.volume);
   const animFrameRef = useRef<number | null>(null);
 
   // Animate the LED level meter when playing
@@ -57,12 +59,13 @@ export const ChannelStrip: React.FC<ChannelStripProps> = ({
     const relativeY = rect.bottom - e.clientY;
     let percentage = relativeY / rect.height;
     percentage = Math.max(0, Math.min(1, percentage));
-    onVolumeChange(percentage);
+    setDragVolume(percentage);
   };
 
   // Handle Dragging
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     setIsDragging(true);
+    isDraggingRef.current = true;
     updateVolumeFromPointer(e);
     if (sliderRef.current) {
       sliderRef.current.setPointerCapture(e.pointerId);
@@ -70,14 +73,23 @@ export const ChannelStrip: React.FC<ChannelStripProps> = ({
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isDragging) return;
+    if (!isDraggingRef.current) return;
     updateVolumeFromPointer(e);
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    updateVolumeFromPointer(e);
+    onVolumeChange(dragVolume);
     setIsDragging(false);
+    isDraggingRef.current = false;
     if (sliderRef.current) {
       sliderRef.current.releasePointerCapture(e.pointerId);
+    }
+  };
+
+  const handlePointerLeave = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (isDraggingRef.current) {
+      handlePointerUp(e);
     }
   };
 
@@ -190,7 +202,8 @@ export const ChannelStrip: React.FC<ChannelStripProps> = ({
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
-            className="relative w-8 h-full bg-white/5 rounded-full flex items-center justify-center cursor-pointer border border-white/10 select-none group overflow-hidden"
+            onPointerLeave={handlePointerLeave}
+            className="relative w-8 h-full bg-white/5 rounded-full flex items-center justify-center cursor-pointer border border-white/10 select-none group overflow-hidden touch-none"
           >
             {/* LED segments overlay — fills the entire track */}
             <div className="absolute inset-x-0 bottom-0 top-0 flex flex-col px-0.5 py-0.5 gap-px pointer-events-none">
@@ -201,7 +214,7 @@ export const ChannelStrip: React.FC<ChannelStripProps> = ({
             <div
               className="absolute w-6 h-6 rounded-full bg-white shadow-[0_0_15px_rgba(255,255,255,0.35)] will-change-[bottom] cursor-grab active:cursor-grabbing flex items-center justify-center z-10"
               style={{ 
-                bottom: `calc(${voice.volume * 100}% - 12px)`,
+                bottom: `calc(${isDragging ? dragVolume : voice.volume} * 100% - 12px)`,
                 border: `4px solid ${
                   voice.color === "indigo" ? "#3b82f6" :
                   voice.color === "pink" ? "#ec4899" :
@@ -288,3 +301,5 @@ export const ChannelStrip: React.FC<ChannelStripProps> = ({
     </div>
   );
 };
+
+export const ChannelStrip = React.memo(ChannelStripComponent);

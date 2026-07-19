@@ -1,5 +1,6 @@
 import React from "react";
 import { Play, Pause, Square, Volume2, VolumeX, Repeat, Sliders } from "lucide-react";
+import { BannerAd } from "./BannerAd";
 
 interface PlaybackControlsProps {
   name: string;
@@ -81,12 +82,6 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
           {arranger && <span className="text-xs text-slate-400"><span className="font-bold text-slate-300">Arr:</span> {arranger}</span>}
         </div>
       </div>
-      {/* Separator + info */}
-      {info && (
-        <div className="shrink-0 border-t border-white/10 pt-2 mb-2">
-          <p className="text-xs text-slate-400 leading-relaxed">{info}</p>
-        </div>
-      )}
       {tags && tags.length > 0 && (
         <div className="flex flex-wrap gap-1.5 shrink-0 mb-2">
           {tags.map((tag) => (
@@ -94,6 +89,16 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
               {tag}
             </span>
           ))}
+        </div>
+      )}
+      {/* Separator + info */}
+      {info && (
+        <div className="shrink-0 border-t border-white/10 pt-2 mb-2">
+          <p className="text-xs text-slate-400 leading-relaxed">
+            {info.split(/([^:]+:)/g).filter(Boolean).map((part, i) =>
+              part.endsWith(":") ? <strong key={i} className="text-slate-300">{part}</strong> : part
+            )}
+          </p>
         </div>
       )}
 
@@ -104,26 +109,15 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
       <div className="flex items-center gap-3 shrink-0 mb-3">
         <div className="flex items-center gap-2">
           <button
-            id="control-play"
-            onClick={onPlay}
+            id="control-play-pause"
+            onClick={isPlaying ? onPause : onPlay}
             className={`p-3 rounded-xl border cursor-pointer transition-all ${
               isPlaying
                 ? "bg-blue-600 border-blue-500 text-white shadow-md shadow-blue-600/20"
                 : "bg-white/5 border-white/5 text-slate-400 hover:text-white hover:bg-white/10"
             }`}
           >
-            <Play className={`h-5 w-5 ${isPlaying ? "fill-white" : ""}`} />
-          </button>
-          <button
-            id="control-pause"
-            onClick={onPause}
-            className={`p-3 rounded-xl border cursor-pointer transition-all ${
-              !isPlaying && currentTime > 0
-                ? "bg-white/15 border-white/10 text-white"
-                : "bg-white/5 border-white/5 text-slate-400 hover:text-white hover:bg-white/10"
-            }`}
-          >
-            <Pause className="h-5 w-5" />
+            {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
           </button>
           <button
             id="control-stop"
@@ -162,16 +156,6 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
         >
           {masterVolume > 0 ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4 text-rose-500" />}
         </button>
-        <input
-          id="master-volume-slider"
-          type="range"
-          min="0"
-          max="1"
-          step="0.01"
-          value={masterVolume}
-          onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
-          className="flex-1 h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
-        />
       </div>
 
       {/* Scrub bar — full width */}
@@ -192,6 +176,7 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
           <span>{formatTime(duration)}</span>
         </div>
       </div>
+      <BannerAd />
     </div>
   );
 };

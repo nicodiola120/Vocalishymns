@@ -1,8 +1,10 @@
 import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Capacitor } from '@capacitor/core';
+import { FilePicker } from '@capawesome/capacitor-file-picker';
 
 const HANDLE_KEY = "vocalis_folder_handle";
 const CAPACITOR_FOLDER_KEY = "vocalis_capacitor_folder";
+const CAPACITOR_FOLDER_PATH_KEY = "vocalis_capacitor_folder_path";
 const CAPACITOR_SUBFOLDER = "VocalisLibrary";
 
 export function isNativePlatform(): boolean {
@@ -16,28 +18,60 @@ export async function pickFolder(): Promise<FileSystemDirectoryHandle | null> {
   return pickFolderWeb();
 }
 
-async function pickFolderNative(): Promise<FileSystemDirectoryHandle | null> {
-  const folderName = promptFolderName();
-  if (!folderName) return null;
+export async function pickZipFiles(): Promise<File[]> {
+  if (!isNativePlatform()) {
+    return pickZipFilesWeb();
+  }
+  return pickZipFilesNative();
+}
 
+async function pickZipFilesNative(): Promise<File[]> {
+  try {
+    const result = await FilePicker.pickFiles({
+      types: ["application/zip"],
+      limit: 0,
+      readData: true,
+    });
+    return result.files.map((f) => {
+      const byteString = atob(f.data || "");
+      const bytes = new Uint8Array(byteString.length);
+      for (let i = 0; i < byteString.length; i++) {
+        bytes[i] = byteString.charCodeAt(i);
+      }
+      return new File([bytes], f.name, { type: "application/zip" });
+    });
+  } catch (err: any) {
+    if (err.message?.includes("canceled") || err.message?.includes("Canceled")) return [];
+    throw err;
+  }
+}
+
+async function pickZipFilesWeb(): Promise<File[]> {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".zip,application/zip";
+    input.multiple = true;
+    input.onchange = () => {
+      const files = Array.from(input.files || []);
+      resolve(files);
+    };
+    input.oncancel = () => resolve([]);
+    input.click();
+  });
+}
+
+async function pickFolderNative(): Promise<FileSystemDirectoryHandle | null> {
+  const folderName = "My Hymns";
   try {
     await Filesystem.mkdir({
       path: `${CAPACITOR_SUBFOLDER}/${folderName}`,
       directory: Directory.Documents,
       recursive: true,
     });
-  } catch {
-    // Directory may already exist, that's fine
-  }
-
+  } catch {}
   localStorage.setItem(CAPACITOR_FOLDER_KEY, folderName);
   return createNativeHandle(folderName);
-}
-
-function promptFolderName(): string | null {
-  const name = window.prompt("Enter a name for your library folder:", "My Hymns");
-  if (!name || !name.trim()) return null;
-  return name.trim();
 }
 
 async function pickFolderWeb(): Promise<FileSystemDirectoryHandle | null> {
@@ -58,6 +92,59 @@ async function pickFolderWeb(): Promise<FileSystemDirectoryHandle | null> {
 
 function createNativeHandle(name: string): NativeDirectoryHandle {
   return new NativeDirectoryHandle(name);
+}
+
+class NativePathHandle {
+  kind: "directory" = "directory";
+  name: string;
+  private basePath: string;
+
+  constructor(path: string) {
+    this.name = path.split("/").pop() || "Folder";
+    this.basePath = path;
+  }
+
+  async *entries(): AsyncIterableIterator<[string, FileSystemHandle]> {
+    try {
+      const result = await Filesystem.readdir({
+        path: this.basePath,
+        directory: Directory.ExternalStorage,
+      });
+      for (const entry of result.files) {
+        const entryPath = `${this.basePath}/${entry.name}`;
+        const isDir = entry.type === "directory";
+        const handle = isDir
+          ? new NativePathHandle(entryPath)
+          : new NativeFileHandle(entryPath);
+        yield [entry.name, handle as unknown as FileSystemHandle];
+      }
+    } catch {
+      // Directory doesn't exist yet
+    }
+  }
+
+  async getFileHandle(name: string, options?: { create?: boolean }): Promise<NativeFileHandle> {
+    return new NativeFileHandle(`${this.basePath}/${name}`);
+  }
+
+  async getDirectoryHandle(name: string, options?: { create?: boolean }): Promise<NativePathHandle> {
+    const dirPath = `${this.basePath}/${name}`;
+    if (options?.create) {
+      await Filesystem.mkdir({
+        path: dirPath,
+        directory: Directory.ExternalStorage,
+        recursive: true,
+      });
+    }
+    return new NativePathHandle(dirPath);
+  }
+
+  async removeEntry(name: string): Promise<void> {
+    await Filesystem.deleteFile({
+      path: `${this.basePath}/${name}`,
+      directory: Directory.ExternalStorage,
+    });
+  }
 }
 
 class NativeDirectoryHandle {
@@ -209,6 +296,15 @@ export async function getStoredHandle(): Promise<FileSystemDirectoryHandle | nul
 }
 
 async function getStoredHandleNative(): Promise<FileSystemDirectoryHandle | null> {
+  const folderPath = localStorage.getItem(CAPACITOR_FOLDER_PATH_KEY);
+  if (folderPath) {
+    try {
+      return createNativePathHandle(folderPath);
+    } catch {
+      return null;
+    }
+  }
+
   const folderName = localStorage.getItem(CAPACITOR_FOLDER_KEY);
   if (!folderName) return null;
 
