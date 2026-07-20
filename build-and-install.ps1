@@ -5,5 +5,5 @@ Set-Location 'C:\Users\Domz\Downloads\New folder (13) - Copy\android'
 & .\gradlew.bat assembleDebug
 $adb = "$env:ANDROID_HOME\platform-tools\adb.exe"
 & $adb install -r 'app\build\outputs\apk\debug\app-debug.apk'
-& $adb shell am force-stop com.vocalis.app
-& $adb shell am start -n com.vocalis.app/.MainActivity
+& $adb shell am force-stop com.choralis.app
+& $adb shell am start -n com.choralis.app/.MainActivity

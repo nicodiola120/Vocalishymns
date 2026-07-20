@@ -1,6 +1,6 @@
 {
-  "appId": "com.vocalis.app",
-  "appName": "Vocalis",
+  "appId": "com.choralis.app",
+  "appName": "Choralis",
   "webDir": "dist",
   "server": {
     "androidScheme": "https",

@@ -1,4 +1,4 @@
-package com.vocalis.app;
+package com.choralis.app;
 
 import com.getcapacitor.BridgeActivity;
 

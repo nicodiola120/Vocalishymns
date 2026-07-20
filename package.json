@@ -54,8 +54,8 @@
     "vite": "^6.2.3"
   },
   "build": {
-    "appId": "com.vocalis.choirmixer",
-    "productName": "Vocalis",
+    "appId": "com.choralis.app",
+    "productName": "Choralis",
     "directories": {
       "output": "dist-electron"
     },

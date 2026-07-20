@@ -7,57 +7,23 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
-.app-bg {
-  background: radial-gradient(circle at 0% 0%, #141526 0%, #030408 100%);
-}
-
-.glass-panel {
-  background: rgba(255, 255, 255, 0.025);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-}
-
-.glass-panel-hover {
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.glass-panel-hover:hover {
-  background: rgba(255, 255, 255, 0.045);
-  border-color: rgba(255, 255, 255, 0.12);
-  box-shadow: 0 12px 40px -12px rgba(0, 0, 0, 0.5);
-}
-
-/* Custom scrollbar styling to match the gorgeous slate theme */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
-::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.3);
-}
-
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
   border-radius: 4px;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.16);
-}
-
-/* Vertical faders style */
 .v-slider {
   width: 6px;
   height: 100%;
-  background: rgba(255, 255, 255, 0.08);
   border-radius: 4px;
   position: relative;
   cursor: pointer;
 }
 
-/* Spark animations for LED meters */
 @keyframes pulse-slow {
   0%, 100% { opacity: 0.8; }
   50% { opacity: 1; }
@@ -65,5 +31,136 @@
 
 .animate-pulse-slow {
   animation: pulse-slow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Dark theme (default) */
+[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.3);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+[data-theme="dark"] .v-slider {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .glass-panel {
+  background: rgba(255, 255, 255, 0.025);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+[data-theme="dark"] .glass-panel-hover {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+[data-theme="dark"] .glass-panel-hover:hover {
+  background: rgba(255, 255, 255, 0.045);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 40px -12px rgba(0, 0, 0, 0.5);
+}
+
+/* Light theme */
+[data-theme="light"] ::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="light"] .v-slider {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .glass-panel {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .glass-panel-hover {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+[data-theme="light"] .glass-panel-hover:hover {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(0, 0, 0, 0.12);
+  box-shadow: 0 4px 20px -8px rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="light"] [class*="text-slate-100"],
+[data-theme="light"] [class*="text-slate-200"],
+[data-theme="light"] [class*="text-slate-300"] {
+  color: #334155 !important;
+}
+
+[data-theme="light"] [class*="text-slate-400"] {
+  color: #64748b !important;
+}
+
+[data-theme="light"] [class*="text-slate-500"] {
+  color: #94a3b8 !important;
+}
+
+[data-theme="light"] [class*="bg-white/"] {
+  background-color: rgba(0, 0, 0, 0.04) !important;
+}
+
+[data-theme="light"] [class*="border-white/"] {
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+[data-theme="light"] [class*="hover:bg-white/"]:hover {
+  background-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+[data-theme="light"] [class*="hover:text-white"]:hover {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] [class*="hover:border-white/"]:hover {
+  border-color: rgba(0, 0, 0, 0.12) !important;
+}
+
+[data-theme="light"] [class*="text-white"] {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] [class*="text-blue-200"],
+[data-theme="light"] [class*="text-blue-300"] {
+  color: #1e40af !important;
+}
+
+[data-theme="light"] [class*="text-blue-400"] {
+  color: #2563eb !important;
+}
+
+[data-theme="light"] [class*="text-emerald-400"] {
+  color: #059669 !important;
+}
+
+[data-theme="light"] [class*="text-amber-400"] {
+  color: #d97706 !important;
+}
+
+[data-theme="light"] [class*="bg-blue-500/"] {
+  background-color: rgba(37, 99, 235, 0.08) !important;
+}
+
+[data-theme="light"] [class*="placeholder-slate-500"]::placeholder {
+  color: #94a3b8 !important;
 }
 

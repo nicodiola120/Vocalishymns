@@ -11,8 +11,9 @@ import { ChannelStrip } from "./components/ChannelStrip";
 import { Dropzone } from "./components/Dropzone";
 import { Toast, ToastMessage } from "./components/Toast";
 import { BannerAd } from "./components/BannerAd";
+import { SettingsModal } from "./components/SettingsModal";
 import { motion, AnimatePresence } from "motion/react";
-import { Sliders, Volume2, Plus, Info, RefreshCw, X, Edit3, Music, AlertTriangle, Folder, FolderOpen, ArrowRight, Check, Play, Pause, Square, Repeat } from "lucide-react";
+import { Sliders, Volume2, Plus, Info, RefreshCw, X, Edit3, Music, Library, Settings, AlertTriangle, Folder, FolderOpen, ArrowRight, Check, Play, Pause, Square, Repeat } from "lucide-react";
 import { LiveUpdate } from "@capawesome/capacitor-live-update";
 
 const VOICE_ORDER: Record<string, number> = {
@@ -65,6 +66,10 @@ export default function App() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [renameValue, setRenameValue] = useState("");
+
+  // Settings
+  const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem("vocalis_dark_mode") !== "false");
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showResetConfirmModal, setShowResetConfirmModal] = useState(false);
   const [movingHymnId, setMovingHymnId] = useState<string | null>(null);
   const [moveFolderInput, setMoveFolderInput] = useState<string>("");
@@ -92,6 +97,12 @@ export default function App() {
   const dismissToast = (id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
+
+  // Persist and apply dark mode setting
+  useEffect(() => {
+    localStorage.setItem("vocalis_dark_mode", String(isDarkMode));
+    document.documentElement.setAttribute("data-theme", isDarkMode ? "dark" : "light");
+  }, [isDarkMode]);
 
   // Initialize: restore folder handle, scan folder, load library
   useEffect(() => {
@@ -668,22 +679,31 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen app-bg text-slate-100 overflow-hidden font-sans selection:bg-blue-500/30 selection:text-blue-200">
+    <div
+      data-theme={isDarkMode ? "dark" : "light"}
+      className={`flex flex-col h-screen w-screen overflow-hidden font-sans selection:bg-blue-500/30 selection:text-blue-200 ${isDarkMode ? "text-slate-100" : "text-slate-800"}`}
+      style={{ background: isDarkMode ? "radial-gradient(circle at 0% 0%, #141526 0%, #030408 100%)" : "radial-gradient(circle at 0% 0%, #f0f4ff 0%, #e2e8f0 100%)" }}>
       
       {/* Header bar — normal flow, hidden in mixer */}
       {!showMixer && (
-        <header className="h-12 border-b border-white/5 bg-white/5 backdrop-blur-md px-4 lg:px-6 flex items-center justify-between shrink-0 select-none">
+        <header className={`h-12 px-4 lg:px-6 flex items-center justify-between shrink-0 select-none backdrop-blur-md ${isDarkMode ? "border-b border-white/5 bg-white/5" : "border-b border-black/5 bg-white/70"}`}>
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowHymnSidebar(!showHymnSidebar)}
               className="p-1.5 bg-blue-600 rounded-lg shadow-lg shadow-blue-600/30 text-white border border-blue-400/20 cursor-pointer hover:bg-blue-500 transition-colors"
             >
-              <Sliders className="h-4 w-4" />
+              <Library className="h-4 w-4" />
             </button>
-            <span className="font-display font-bold text-sm tracking-wide bg-clip-text text-transparent bg-gradient-to-r from-slate-100 via-blue-200 to-blue-100">
-              VOCALIS • Choir Voice Mixer
+            <span className={`font-display font-bold text-sm tracking-wide ${isDarkMode ? "bg-clip-text text-transparent bg-gradient-to-r from-slate-100 via-blue-200 to-blue-100" : "text-slate-800"}`}>
+              CHORALIS • Choir Voice Mixer
             </span>
           </div>
+          <button
+            onClick={() => setShowSettingsModal(true)}
+            className={`p-1.5 rounded-lg cursor-pointer transition-colors ${isDarkMode ? "text-slate-300 hover:bg-white/5" : "text-slate-600 hover:bg-black/5"}`}
+          >
+            <Settings className="h-4 w-4" />
+          </button>
         </header>
       )}
 
@@ -732,7 +752,7 @@ export default function App() {
           
           {isLoadingActiveHymn ? (
             /* Loading State Backdrop */
-            <div className="absolute inset-0 bg-[#05070a]/60 backdrop-blur-xl z-40 flex flex-col items-center justify-center gap-4">
+            <div className={`absolute inset-0 ${isDarkMode ? "bg-[#05070a]/60" : "bg-white/80"} backdrop-blur-xl z-40 flex flex-col items-center justify-center gap-4`}>
               <RefreshCw className="h-8 w-8 text-blue-400 animate-spin" />
               <div className="flex flex-col items-center gap-1.5">
                 <span className="font-semibold text-sm text-slate-200">
@@ -784,15 +804,15 @@ export default function App() {
           ) : (
             /* Blank state if no tracks are chosen */
             <div className="flex flex-col flex-1">
-              <div className="flex-1 flex flex-col items-center justify-center p-12 max-w-md mx-auto text-center gap-6">
-                <div className="p-4 bg-white/5 rounded-3xl border border-white/10 text-slate-400 shadow-xl">
-                  <Music className="h-10 w-10 text-blue-400 animate-pulse" />
+              <div className="flex-1 flex flex-col lg:flex-row items-center justify-center p-4 sm:p-8 lg:p-12 max-w-2xl mx-auto text-center lg:text-left gap-4 sm:gap-6">
+                <div className="p-3 sm:p-4 bg-white/5 rounded-3xl border border-white/10 text-slate-400 shadow-xl shrink-0">
+                  <Library className="h-8 sm:h-10 w-8 sm:w-10 text-blue-400 animate-pulse" />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <h2 className="font-display font-bold text-slate-200 text-lg">
+                  <h2 className="font-display font-bold text-slate-200 text-base sm:text-lg">
                     No Track Selected
                   </h2>
-                  <p className="text-xs text-slate-500 leading-relaxed">
+                  <p className="text-xs text-slate-500 leading-relaxed max-w-md">
                     Select a hymn track from the sidebar to start practicing, or import a zipped choir pack to load custom multi-channel recordings.
                   </p>
                 </div>
@@ -810,7 +830,7 @@ export default function App() {
 
           {/* Full-screen mixer overlay */}
           {activeHymn && showMixer && (
-            <div className="absolute inset-0 z-30 bg-[#05070a]/95 backdrop-blur-xl flex flex-col overflow-hidden">
+            <div className={`absolute inset-0 z-30 ${isDarkMode ? "bg-[#05070a]/95" : "bg-white/90"} backdrop-blur-xl flex flex-col overflow-hidden`}>
               <div className="flex items-center gap-3 px-4 lg:px-8 pt-3 pb-2 border-b border-white/5 shrink-0">
                 <div className="flex items-center gap-2 shrink-0">
                   <Music className="h-3.5 w-3.5 text-blue-400" />
@@ -1364,6 +1384,14 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Settings Modal */}
+      <SettingsModal
+        isOpen={showSettingsModal}
+        isDarkMode={isDarkMode}
+        onToggleTheme={() => setIsDarkMode(!isDarkMode)}
+        onClose={() => setShowSettingsModal(false)}
+      />
 
       {/* Toast notifications */}
       <Toast toasts={toasts} onDismiss={dismissToast} />

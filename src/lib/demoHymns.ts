@@ -297,7 +297,7 @@ export function generateDemoHymns(): Hymn[] {
       isDemo: true,
       lyrics: "Traditional Latin Prayer",
       music: "Franz Schubert (1825)",
-      arranger: "Vocalis Synthesizer",
+      arranger: "Choralis Synthesizer",
       info: "A serene 4-part simulation of Schubert's famous sacred composition with soft ADSR envelope modeling.",
       tags: ["Classical", "Latin", "Schubert"],
     },

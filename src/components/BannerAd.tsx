@@ -6,9 +6,10 @@ const BANNER_HEIGHT = 60
 
 interface BannerAdProps {
   vertical?: boolean
+  onPurchase?: () => void
 }
 
-export function BannerAd({ vertical }: BannerAdProps) {
+export function BannerAd({ vertical, onPurchase }: BannerAdProps) {
   const [removed, setRemoved] = useState(isAdsRemoved)
   const [showModal, setShowModal] = useState(false)
   const [purchasing, setPurchasing] = useState(false)
@@ -21,6 +22,7 @@ export function BannerAd({ vertical }: BannerAdProps) {
     try {
       await purchaseRemoveAds()
       setDone(true)
+      onPurchase?.()
       setTimeout(() => {
         setShowModal(false)
         setRemoved(true)
@@ -35,14 +37,14 @@ export function BannerAd({ vertical }: BannerAdProps) {
       <>
         <div
           onClick={() => setShowModal(true)}
-          className="flex flex-col items-center justify-center gap-2 bg-gradient-to-b from-blue-900/20 via-blue-800/15 to-blue-900/20 border-l border-blue-500/10 px-2 cursor-pointer hover:from-blue-800/25 hover:via-blue-700/20 transition-all shrink-0"
-          style={{ width: "48px", minWidth: "48px" }}
+          className="flex flex-col items-center justify-center gap-2 bg-gradient-to-b from-blue-900/20 via-blue-800/15 to-blue-900/20 border-l border-blue-500/10 px-2 cursor-pointer hover:from-blue-800/25 hover:via-blue-700/20 transition-all shrink-0 h-full self-stretch"
+          style={{ width: "60px", minWidth: "60px" }}
         >
           <span className="text-[8px] font-bold text-blue-400/80 bg-blue-500/10 px-1 py-0.5 rounded border border-blue-500/20">
             AD
           </span>
           <span className="text-[7px] text-slate-500 leading-tight text-center">
-            Support Vocalis
+            Support Choralis
           </span>
         </div>
         {showModal && (
@@ -52,12 +54,12 @@ export function BannerAd({ vertical }: BannerAdProps) {
                 <>
                   <div className="text-4xl mb-4">🎉</div>
                   <h3 className="text-lg font-bold text-green-400 mb-2">Ads Removed!</h3>
-                  <p className="text-sm text-slate-400">Thank you for supporting Vocalis.</p>
+                  <p className="text-sm text-slate-400">Thank you for supporting Choralis.</p>
                 </>
               ) : (
                 <>
                   <h3 className="text-lg font-bold text-slate-100 mb-2">Remove Ads</h3>
-                  <p className="text-sm text-slate-400 mb-6">Enjoy Vocalis completely ad-free with a one-time purchase.</p>
+                  <p className="text-sm text-slate-400 mb-6">Enjoy Choralis completely ad-free with a one-time purchase.</p>
                   <p className="text-2xl font-bold text-slate-100 mb-6">$1.99</p>
                   <button onClick={handlePurchase} disabled={purchasing} className="py-3 px-6 w-full rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-base border border-blue-400/30 shadow-lg shadow-blue-600/20 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2">
                     {purchasing && <Loader2 className="h-5 w-5 animate-spin" />}
@@ -81,7 +83,7 @@ export function BannerAd({ vertical }: BannerAdProps) {
         style={{ height: `${BANNER_HEIGHT}px`, minHeight: `${BANNER_HEIGHT}px` }}
       >
         <span className="text-[9px] font-bold text-blue-400/80 bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/20">AD</span>
-        <span className="text-[10px] text-slate-400 font-medium tracking-wide">Support Vocalis — Remove Ads</span>
+        <span className="text-[10px] text-slate-400 font-medium tracking-wide">Support Choralis — Remove Ads</span>
       </div>
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -90,12 +92,12 @@ export function BannerAd({ vertical }: BannerAdProps) {
               <>
                 <div className="text-4xl mb-4">🎉</div>
                 <h3 className="text-lg font-bold text-green-400 mb-2">Ads Removed!</h3>
-                <p className="text-sm text-slate-400">Thank you for supporting Vocalis.</p>
+                <p className="text-sm text-slate-400">Thank you for supporting Choralis.</p>
               </>
             ) : (
               <>
                 <h3 className="text-lg font-bold text-slate-100 mb-2">Remove Ads</h3>
-                <p className="text-sm text-slate-400 mb-6">Enjoy Vocalis completely ad-free with a one-time purchase.</p>
+                <p className="text-sm text-slate-400 mb-6">Enjoy Choralis completely ad-free with a one-time purchase.</p>
                 <p className="text-2xl font-bold text-slate-100 mb-6">$1.99</p>
                 <button onClick={handlePurchase} disabled={purchasing} className="py-3 px-6 w-full rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-base border border-blue-400/30 shadow-lg shadow-blue-600/20 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2">
                   {purchasing && <Loader2 className="h-5 w-5 animate-spin" />}

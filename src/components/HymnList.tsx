@@ -39,6 +39,9 @@ export const HymnList: React.FC<HymnListProps> = ({
   const [adPromptHymnItem, setAdPromptHymnItem] = useState<OnlineHymnItem | null>(null);
   const [adPromptShowing, setAdPromptShowing] = useState(false);
 
+  // Force re-render when Remove Ads is purchased
+  const [purchaseVersion, setPurchaseVersion] = useState(0);
+
   // Cloud repos state & refresh
   const [onlineHymns, setOnlineHymns] = useState<OnlineHymnItem[]>([]);
   const [isRefreshingCloud, setIsRefreshingCloud] = useState(false);
@@ -441,7 +444,7 @@ export const HymnList: React.FC<HymnListProps> = ({
 
 
       {/* Banner ad */}
-      <BannerAd />
+      <BannerAd onPurchase={() => setPurchaseVersion(v => v + 1)} />
 
       {/* Sidebar Bottom Utilities */}
       <div className="p-3 border-t border-white/5 flex items-center justify-center bg-transparent">
