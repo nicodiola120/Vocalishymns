@@ -7,11 +7,37 @@ const CAPACITOR_FOLDER_KEY = "vocalis_capacitor_folder";
 const CAPACITOR_FOLDER_PATH_KEY = "vocalis_capacitor_folder_path";
 const CAPACITOR_SUBFOLDER = "VocalisLibrary";
 
+declare global {
+  interface Window {
+    electronFS?: {
+      isElectron: boolean;
+      pickFolder: () => Promise<{ path: string; name: string } | null>;
+      pickZipFiles: () => Promise<{ name: string; buffer: ArrayBuffer }[]>;
+      pickAudioFile: () => Promise<{ name: string; buffer: ArrayBuffer } | null>;
+      pickPdfFile: () => Promise<{ name: string; buffer: ArrayBuffer } | null>;
+      listFiles: (dirPath: string) => Promise<{ name: string; isDir: boolean }[]>;
+      readFile: (filePath: string) => Promise<ArrayBuffer>;
+      writeFile: (filePath: string, data: ArrayBuffer) => Promise<void>;
+      deleteFile: (filePath: string) => Promise<void>;
+      ensureDir: (dirPath: string) => Promise<void>;
+      getStoredPath: () => Promise<string | null>;
+      setStoredPath: (dirPath: string) => Promise<void>;
+      saveZip: (defaultName: string, data: ArrayBuffer) => Promise<string | null>;
+    };
+  }
+}
+
+export function isElectronPlatform(): boolean {
+  return !!(window as any).electronFS?.isElectron;
+}
+
 export function isNativePlatform(): boolean {
+  if (isElectronPlatform()) return false;
   return Capacitor.isNativePlatform();
 }
 
 export async function pickFolder(): Promise<FileSystemDirectoryHandle | null> {
+  if (isElectronPlatform()) return pickFolderElectron();
   if (isNativePlatform()) {
     return pickFolderNative();
   }
@@ -19,6 +45,7 @@ export async function pickFolder(): Promise<FileSystemDirectoryHandle | null> {
 }
 
 export async function pickZipFiles(): Promise<File[]> {
+  if (isElectronPlatform()) return pickZipFilesElectron();
   if (!isNativePlatform()) {
     return pickZipFilesWeb();
   }
@@ -44,6 +71,175 @@ async function pickZipFilesNative(): Promise<File[]> {
     if (err.message?.includes("canceled") || err.message?.includes("Canceled")) return [];
     throw err;
   }
+}
+
+// ── Electron File System Wrappers ─────────────────────────────
+
+class ElectronWritableStream implements FileSystemWritableFileStream {
+  private path: string;
+  private chunks: (ArrayBuffer | Blob | string)[] = [];
+  locked = false;
+
+  constructor(filePath: string) {
+    this.path = filePath;
+  }
+
+  async write(data: BufferSource | Blob | string): Promise<void> {
+    if (typeof data === "string") {
+      this.chunks.push(data);
+    } else if (data instanceof Blob) {
+      this.chunks.push(data);
+    } else {
+      const ab = data instanceof ArrayBuffer ? data : data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+      this.chunks.push(ab);
+    }
+  }
+
+  async seek(_position: number): Promise<void> {}
+
+  async truncate(_size?: number): Promise<void> {}
+
+  getWriter(): WritableStreamDefaultWriter<any> {
+    throw new Error("getWriter not supported");
+  }
+
+  async close(): Promise<void> {
+    const parts: Uint8Array[] = [];
+    for (const chunk of this.chunks) {
+      if (typeof chunk === "string") {
+        parts.push(new TextEncoder().encode(chunk));
+      } else if (chunk instanceof Blob) {
+        const buf = await chunk.arrayBuffer();
+        parts.push(new Uint8Array(buf));
+      } else {
+        parts.push(new Uint8Array(chunk));
+      }
+    }
+    const totalSize = parts.reduce((acc, p) => acc + p.length, 0);
+    const combined = new Uint8Array(totalSize);
+    let offset = 0;
+    for (const part of parts) {
+      combined.set(part, offset);
+      offset += part.length;
+    }
+    await window.electronFS!.writeFile(this.path, combined.buffer);
+  }
+
+  abort(): Promise<void> {
+    this.chunks = [];
+    return Promise.resolve();
+  }
+
+  releaseLock(): void {}
+}
+
+class ElectronFileHandle {
+  kind: "file" = "file";
+  name: string;
+  private fullPath: string;
+
+  constructor(filePath: string) {
+    this.fullPath = filePath;
+    this.name = filePath.split(/[\\/]/).pop() || filePath;
+  }
+
+  async getFile(): Promise<File> {
+    const buffer = await window.electronFS!.readFile(this.fullPath);
+    return new File([new Uint8Array(buffer)], this.name, { type: "application/zip" });
+  }
+
+  async createWritable(): Promise<ElectronWritableStream> {
+    return new ElectronWritableStream(this.fullPath);
+  }
+
+  async isSameEntry(other: ElectronFileHandle): Promise<boolean> {
+    return this.fullPath === other.fullPath;
+  }
+}
+
+class ElectronDirectoryHandle {
+  kind: "directory" = "directory";
+  name: string;
+  private basePath: string;
+
+  constructor(dirPath: string) {
+    this.basePath = dirPath;
+    this.name = dirPath.split(/[\\/]/).pop() || "Folder";
+  }
+
+  async *entries(): AsyncIterableIterator<[string, FileSystemHandle]> {
+    const entries = await window.electronFS!.listFiles(this.basePath);
+    for (const entry of entries) {
+      const entryPath = `${this.basePath}\\${entry.name}`;
+      const handle = entry.isDir
+        ? new ElectronDirectoryHandle(entryPath)
+        : new ElectronFileHandle(entryPath);
+      yield [entry.name, handle as unknown as FileSystemHandle];
+    }
+  }
+
+  async getFileHandle(name: string, options?: { create?: boolean }): Promise<ElectronFileHandle> {
+    const filePath = `${this.basePath}\\${name}`;
+    return new ElectronFileHandle(filePath);
+  }
+
+  async getDirectoryHandle(name: string, options?: { create?: boolean }): Promise<ElectronDirectoryHandle> {
+    const dirPath = `${this.basePath}\\${name}`;
+    if (options?.create) {
+      await window.electronFS!.ensureDir(dirPath);
+    }
+    return new ElectronDirectoryHandle(dirPath);
+  }
+
+  async removeEntry(name: string): Promise<void> {
+    const filePath = `${this.basePath}\\${name}`;
+    await window.electronFS!.deleteFile(filePath);
+  }
+
+  async isSameEntry(other: ElectronDirectoryHandle): Promise<boolean> {
+    return this.basePath === other.basePath;
+  }
+
+  async resolve(possibleDescendant: ElectronFileHandle | ElectronDirectoryHandle): Promise<string[]> {
+    const descendantPath = (possibleDescendant as any).fullPath || (possibleDescendant as any).basePath;
+    if (!descendantPath || !descendantPath.startsWith(this.basePath)) return [];
+    const relative = descendantPath.slice(this.basePath.length + 1);
+    return relative.split(/[\\/]/);
+  }
+
+  getDirectoryHandle2(): never {
+    throw new Error("not implemented");
+  }
+}
+
+async function pickFolderElectron(): Promise<FileSystemDirectoryHandle | null> {
+  const result = await window.electronFS!.pickFolder();
+  if (!result) return null;
+  return new ElectronDirectoryHandle(result.path) as unknown as FileSystemDirectoryHandle;
+}
+
+async function pickZipFilesElectron(): Promise<File[]> {
+  const files = await window.electronFS!.pickZipFiles();
+  return files.map((f) => new File([new Uint8Array(f.buffer)], f.name, { type: "application/zip" }));
+}
+
+export async function pickAudioFile(): Promise<File | null> {
+  if (!isElectronPlatform()) return null;
+  const result = await window.electronFS!.pickAudioFile();
+  if (!result) return null;
+  return new File([new Uint8Array(result.buffer)], result.name);
+}
+
+export async function pickPdfFile(): Promise<{ name: string; data: ArrayBuffer } | null> {
+  if (!isElectronPlatform()) return null;
+  const result = await window.electronFS!.pickPdfFile();
+  if (!result) return null;
+  return { name: result.name, data: result.buffer.buffer.slice(result.buffer.byteOffset, result.buffer.byteOffset + result.buffer.byteLength) };
+}
+
+export async function saveZipToFile(defaultName: string, data: ArrayBuffer): Promise<string | null> {
+  if (!isElectronPlatform()) return null;
+  return window.electronFS!.saveZip(defaultName, data);
 }
 
 async function pickZipFilesWeb(): Promise<File[]> {
@@ -289,10 +485,17 @@ export async function persistHandle(handle: FileSystemDirectoryHandle): Promise<
 }
 
 export async function getStoredHandle(): Promise<FileSystemDirectoryHandle | null> {
+  if (isElectronPlatform()) return getStoredHandleElectron();
   if (isNativePlatform()) {
     return getStoredHandleNative();
   }
   return getStoredHandleWeb();
+}
+
+async function getStoredHandleElectron(): Promise<FileSystemDirectoryHandle | null> {
+  const dirPath = await window.electronFS!.getStoredPath();
+  if (!dirPath) return null;
+  return new ElectronDirectoryHandle(dirPath) as unknown as FileSystemDirectoryHandle;
 }
 
 async function getStoredHandleNative(): Promise<FileSystemDirectoryHandle | null> {

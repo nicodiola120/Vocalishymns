@@ -15,13 +15,16 @@ export interface Hymn {
   voices: Voice[];
   duration: number; // in seconds
   createdAt: number;
-  isDemo?: boolean; // Flag to indicate if it's a synthetic demo
+  isDemo?: boolean;
   lyrics?: string;
   music?: string;
   arranger?: string;
   info?: string;
   tags?: string[];
   folder?: string;
+  zipFile?: string;
+  sheetName?: string;
+  sheetData?: ArrayBuffer;
 }
 
 export interface PlaybackState {

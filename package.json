@@ -11,12 +11,14 @@
     "lint": "tsc --noEmit",
     "publish": "powershell -ExecutionPolicy Bypass -File publish-update.ps1 -Version",
     "electron:start": "vite build && electron electron-main.cjs",
-    "electron:build": "vite build && electron-builder --win --portable",
+    "electron:build": "vite build && electron-builder --win",
     "android:sync": "vite build && npx cap sync android",
     "android:open": "vite build && npx cap open android",
-    "android:build": "vite build && npx cap sync android && cd android && gradlew.bat assembleDebug"
+    "android:build": "vite build && npx cap sync android && cd android && gradlew.bat assembleDebug",
+    "voucher": "node scripts/generate-voucher.cjs"
   },
   "dependencies": {
+    "@breezystack/lamejs": "^1.2.7",
     "@capacitor-community/admob": "^8.0.0",
     "@capacitor/android": "^8.4.2",
     "@capacitor/cli": "^8.4.2",
@@ -34,8 +36,10 @@
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "jszip": "^3.10.1",
+    "lamejs": "^1.2.1",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "pdfjs-dist": "^6.1.200",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "vite": "^6.2.3"
@@ -48,11 +52,15 @@
     "electron": "^31.0.0",
     "electron-builder": "^24.13.3",
     "esbuild": "^0.25.0",
+    "pkg": "^5.8.1",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.3"
   },
+  "main": "electron-main.cjs",
+  "description": "Choralis - Choir Voice Mixer",
+  "author": "Nicolas Diola",
   "build": {
     "appId": "com.choralis.app",
     "productName": "Choralis",
@@ -65,7 +73,15 @@
       "preload.js"
     ],
     "win": {
-      "target": "portable"
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
     }
   }
 }

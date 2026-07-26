@@ -1,6 +1,5 @@
 import React from "react";
-import { Play, Pause, Square, Volume2, VolumeX, Repeat, Sliders } from "lucide-react";
-import { BannerAd } from "./BannerAd";
+import { Play, Pause, Square, Volume2, VolumeX, Repeat, Sliders, FileText } from "lucide-react";
 
 interface PlaybackControlsProps {
   name: string;
@@ -23,6 +22,8 @@ interface PlaybackControlsProps {
   tags?: string[];
   showMixer?: boolean;
   onToggleMixer?: () => void;
+  sheetName?: string;
+  onViewSheet?: () => void;
 }
 
 export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
@@ -46,6 +47,8 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
   tags,
   showMixer,
   onToggleMixer,
+  sheetName,
+  onViewSheet,
 }) => {
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -61,22 +64,34 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
         <div className="shrink-0">
           <div className="flex items-start gap-3 landscape:relative">
             <h1
-              className="font-display font-bold text-slate-100 text-lg landscape:text-base flex-1 min-w-0 landscape:pr-[56px] cursor-pointer hover:text-blue-400 transition-colors"
+              className="font-display font-bold text-slate-100 text-lg landscape:text-base flex-1 min-w-0 landscape:pr-[112px] cursor-pointer hover:text-blue-400 transition-colors"
               onClick={onRename}
               title="Rename Hymn"
             >
               {name}
             </h1>
-            {onToggleMixer && (
-              <button
-                id="btn-toggle-mixer"
-                onClick={onToggleMixer}
-                className="shrink-0 landscape:absolute landscape:top-0 landscape:right-0 p-2.5 landscape:p-[11px] rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 cursor-pointer transition-all"
-                title="Open Mixer"
-              >
-                <Sliders className="h-5 w-5 landscape:h-[22px] landscape:w-[22px]" />
-              </button>
-            )}
+            <div className="flex items-center gap-2 shrink-0 landscape:absolute landscape:top-0 landscape:right-0">
+              {sheetName && onViewSheet && (
+                <button
+                  id="btn-view-sheet"
+                  onClick={onViewSheet}
+                  className="shrink-0 p-2.5 landscape:p-[11px] rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/30 cursor-pointer transition-all"
+                  title="View Sheet"
+                >
+                  <FileText className="h-5 w-5 landscape:h-[22px] landscape:w-[22px]" />
+                </button>
+              )}
+              {onToggleMixer && (
+                <button
+                  id="btn-toggle-mixer"
+                  onClick={onToggleMixer}
+                  className="shrink-0 p-2.5 landscape:p-[11px] rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 cursor-pointer transition-all"
+                  title="Open Mixer"
+                >
+                  <Sliders className="h-5 w-5 landscape:h-[22px] landscape:w-[22px]" />
+                </button>
+              )}
+            </div>
           </div>
           <div className="flex flex-col sm:flex-row sm:landscape:flex-col flex-wrap sm:gap-x-4 gap-y-1 mt-1.5 landscape:mt-0">
           {lyrics?.trim() && <span className="text-xs landscape:text-[10px] text-slate-400"><span className="font-bold text-slate-300">Lyrics:</span> {lyrics}</span>}
@@ -116,11 +131,11 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
           </div>
         )}
 
-        {/* Spacer — capped in portrait so controls sit higher from banner */}
-        <div className="flex-1 portrait:max-h-[50%]" />
+        {/* Spacer — push transport down but keep it away from ad banner */}
+        <div className="flex-1 portrait:max-h-[30%]" />
 
-      {/* Transport + Time + Volume + Scrub inline */}
-      <div className="flex items-center gap-1.5 landscape:gap-2 shrink-0">
+      {/* Transport + Time + Scrub inline */}
+      <div className="flex items-center gap-1.5 landscape:gap-2 shrink-0 w-full">
           <button
             id="control-play-pause"
             onClick={isPlaying ? onPause : onPlay}
@@ -161,6 +176,25 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
           </span>
         </div>
 
+        {/* Volume — portrait, next to runtime */}
+        <div className="flex items-center gap-1.5 landscape:hidden shrink-0 min-w-0">
+          <button
+            onClick={() => onVolumeChange(masterVolume > 0 ? 0 : 0.8)}
+            className="text-slate-400 hover:text-slate-200 cursor-pointer transition-colors shrink-0"
+          >
+            {masterVolume > 0 ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5 text-rose-500" />}
+          </button>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={masterVolume}
+            onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
+            className="flex-1 min-w-0 h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
+          />
+        </div>
+
         {/* Scrub bar inline — landscape only */}
         <div className="hidden landscape:flex flex-1 min-w-0">
           <input
@@ -179,9 +213,9 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
         <button
           id="btn-master-mute"
           onClick={() => onVolumeChange(masterVolume > 0 ? 0 : 0.8)}
-          className="text-slate-400 hover:text-slate-200 cursor-pointer transition-colors shrink-0"
+          className="hidden landscape:block text-slate-400 hover:text-slate-200 cursor-pointer transition-colors shrink-0"
         >
-          {masterVolume > 0 ? <Volume2 className="h-3.5 w-3.5 landscape:h-4 landscape:w-4" /> : <VolumeX className="h-3.5 w-3.5 landscape:h-4 landscape:w-4 text-rose-500" />}
+          {masterVolume > 0 ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4 text-rose-500" />}
         </button>
         </div>
 
@@ -198,16 +232,6 @@ export const PlaybackControls: React.FC<PlaybackControlsProps> = ({
               [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-blue-500"
           />
         </div>
-      </div>
-
-      {/* Right side — landscape banner */}
-      <div className="hidden landscape:flex shrink-0 h-full">
-        <BannerAd vertical />
-      </div>
-
-      {/* Bottom — portrait banner */}
-      <div className="landscape:hidden">
-        <BannerAd />
       </div>
     </div>
   );

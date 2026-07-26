@@ -149,12 +149,25 @@ self.onmessage = async (e: MessageEvent) => {
       } catch { /* ignore */ }
     }
 
+    // Extract PDF sheet if present
+    let sheetName: string | undefined;
+    let sheetData: ArrayBuffer | undefined;
+    const pdfEntry = entries.find((entry) => !entry.directory && entry.filename.toLowerCase().endsWith(".pdf"));
+    if (pdfEntry) {
+      try {
+        const dataView = await pdfEntry.getData(new Uint8ArrayWriter(), { password: workingPassword });
+        sheetData = dataView.buffer.slice(dataView.byteOffset, dataView.byteOffset + dataView.byteLength);
+        const parts = pdfEntry.filename.replace(/\\/g, "/").split("/");
+        sheetName = cleanName(parts[parts.length - 1] || pdfEntry.filename);
+      } catch { /* ignore */ }
+    }
+
     await reader.close();
 
     if (voices.length === 0) throw new Error("No valid audio tracks could be successfully extracted from the ZIP archive.");
 
     const hymnName = cleanName(fileName);
-    const hymn = {
+    const hymn: any = {
       id: `hymn-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       name: hymnName,
       voices,
@@ -165,10 +178,13 @@ self.onmessage = async (e: MessageEvent) => {
       arranger: infoMetadata.arranger,
       info: infoMetadata.info,
       tags: infoMetadata.tags,
+      sheetName,
+      sheetData,
     };
 
-    // Transfer audio ArrayBuffers back to main thread
-    const transferables = voices.map((v: any) => v.audioData).filter((d: any) => d instanceof ArrayBuffer);
+    // Transfer audio ArrayBuffers + sheet ArrayBuffer back to main thread
+    const transferables: any[] = voices.map((v: any) => v.audioData).filter((d: any) => d instanceof ArrayBuffer);
+    if (sheetData instanceof ArrayBuffer) transferables.push(sheetData);
     (self as any).postMessage({ requestId, hymn, error: null }, transferables);
   } catch (err: any) {
     const isPasswordRequired = err?.isPasswordRequired === true;

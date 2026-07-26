@@ -89,14 +89,18 @@ export async function initializeAds(): Promise<void> {
   }
 }
 
+export function isBannerShowing(): boolean {
+  return adState.hasBanner
+}
+
 export async function showBanner(): Promise<void> {
   if (adState.hasBanner || isAdsRemoved()) return
   try {
     await AdMob.showBanner({
       adId: BANNER_AD_ID,
-      isTesting: false,
+      isTesting: true,
       position: "BOTTOM_CENTER",
-      adSize: "ADAPTIVE_BANNER",
+      adSize: "SMART_BANNER",
       margin: 0,
     })
     adState.hasBanner = true
@@ -135,7 +139,7 @@ export async function showRewardedAd(): Promise<boolean> {
   try {
     await AdMob.prepareRewardVideoAd({
       adId: REWARDED_AD_ID,
-      isTesting: false,
+      isTesting: true,
     })
     const reward = await AdMob.showRewardVideoAd()
     adState.lastShownTimestamp = Date.now()

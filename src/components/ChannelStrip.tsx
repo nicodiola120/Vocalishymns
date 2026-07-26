@@ -1,7 +1,22 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Voice } from "../types";
 import { player } from "../lib/audioEngine";
-import { Volume2, VolumeX, Mic } from "lucide-react";
+import { Volume2, VolumeX, Mic, Upload, X, Pencil, Trash2 } from "lucide-react";
+
+function polarToXY(cx: number, cy: number, r: number, deg: number) {
+  const rad = deg * Math.PI / 180;
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
+
+function arcPath(cx: number, cy: number, r: number, startDeg: number, sweepDeg: number) {
+  if (Math.abs(sweepDeg) < 0.5) return "";
+  const endDeg = startDeg + sweepDeg;
+  const s = polarToXY(cx, cy, r, startDeg);
+  const e = polarToXY(cx, cy, r, endDeg);
+  const large = Math.abs(sweepDeg) > 180 ? 1 : 0;
+  const sweep = sweepDeg > 0 ? 1 : 0;
+  return `M ${s.x} ${s.y} A ${r} ${r} 0 ${large} ${sweep} ${e.x} ${e.y}`;
+}
 
 interface ChannelStripProps {
   voice: Voice;
@@ -11,6 +26,15 @@ interface ChannelStripProps {
   onPanChange: (pan: number) => void;
   isPlaying: boolean;
   expanded?: boolean;
+  onLoadAudio?: () => void;
+  onUnloadAudio?: () => void;
+  onRemoveTrack?: () => void;
+  onRename?: (name: string) => void;
+  isDesktop?: boolean;
+  onDragStart?: () => void;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDrop?: () => void;
+  isDragTarget?: boolean;
 }
 
 const ChannelStripComponent: React.FC<ChannelStripProps> = ({
@@ -21,6 +45,15 @@ const ChannelStripComponent: React.FC<ChannelStripProps> = ({
   onPanChange,
   isPlaying,
   expanded,
+  onLoadAudio,
+  onUnloadAudio,
+  onRemoveTrack,
+  onRename,
+  isDesktop,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  isDragTarget,
 }) => {
   const sliderRef = useRef<HTMLDivElement>(null);
   const isDraggingRef = useRef(false);
@@ -28,6 +61,9 @@ const ChannelStripComponent: React.FC<ChannelStripProps> = ({
   const [level, setLevel] = useState(0);
   const [dragVolume, setDragVolume] = useState(voice.volume);
   const animFrameRef = useRef<number | null>(null);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState(voice.name);
+  const renameInputRef = useRef<HTMLInputElement>(null);
 
   // Animate the LED level meter when playing
   useEffect(() => {
@@ -171,6 +207,59 @@ const ChannelStripComponent: React.FC<ChannelStripProps> = ({
     );
   });
 
+  // --- Rotary Pan Knob state ---
+  const knobRef = useRef<HTMLDivElement>(null);
+  const knobDraggingRef = useRef(false);
+  const panValue = voice.pan ?? 0;
+
+  const panStartYRef = useRef(0);
+  const panStartValueRef = useRef(0);
+
+  const updatePanFromPointer = (e: React.PointerEvent | PointerEvent) => {
+    if (!knobDraggingRef.current) return;
+    const totalTravel = 120;
+    const deltaY = e.clientY - panStartYRef.current;
+    let newPan = panStartValueRef.current - deltaY / totalTravel;
+    newPan = Math.max(-1, Math.min(1, newPan));
+    onPanChange(Math.round(newPan * 100) / 100);
+  };
+
+  const updatePanFromPointerMove = (e: React.PointerEvent | PointerEvent) => {
+    if (!knobRef.current || !knobDraggingRef.current) return;
+    updatePanFromPointer(e);
+  };
+
+  const handleKnobPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    knobDraggingRef.current = true;
+    panStartYRef.current = e.clientY;
+    panStartValueRef.current = panValue;
+    knobRef.current?.setPointerCapture(e.pointerId);
+  };
+
+  const handleKnobPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!knobDraggingRef.current) return;
+    updatePanFromPointerMove(e);
+  };
+
+  const handleKnobPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const deltaY = Math.abs(e.clientY - panStartYRef.current);
+    knobDraggingRef.current = false;
+    knobRef.current?.releasePointerCapture(e.pointerId);
+    if (deltaY < 4) {
+      onPanChange(0);
+    }
+  };
+
+  const panAngle = panValue * 135;
+  const indicatorX = Math.sin((panAngle * Math.PI) / 180) * 14;
+  const indicatorY = -Math.cos((panAngle * Math.PI) / 180) * 14;
+
+  const accentHex =
+    voice.color === "indigo" ? "#3b82f6" :
+    voice.color === "pink" ? "#ec4899" :
+    voice.color === "sky" ? "#0ea5e9" :
+    voice.color === "emerald" ? "#10b981" : "#f59e0b";
+
   return (
     <div
       id={`strip-${voice.id}`}
@@ -181,12 +270,85 @@ const ChannelStripComponent: React.FC<ChannelStripProps> = ({
       } p-2 lg:p-3 w-full select-none transition-all duration-300 ${expanded ? '' : 'hover:scale-[1.01] hover:border-white/15'}`}
     >
       {/* Header Info */}
-      <div className="flex items-center justify-between mb-2 border-b border-white/5 pb-2">
-        <div className="flex items-center gap-1.5">
-          <Mic className={`h-3.5 w-3.5 ${themeColors.text}`} />
-          <span className="font-display font-semibold text-slate-100 text-xs tracking-wide">
-            {voice.name === "Soprano" ? "S" : voice.name === "Alto" ? "A" : voice.name === "Tenor" ? "T" : voice.name === "Bass" ? "B" : voice.name === "Instrument" ? "Ins" : voice.name}
-          </span>
+      <div
+        className={`flex items-center justify-between mb-2 border-b border-white/5 pb-2 ${isDesktop && isDragTarget ? 'border-blue-500/40 bg-blue-500/5' : ''}`}
+        onDragOver={onDragOver}
+        onDrop={onDrop}
+      >
+        <div
+          className="flex items-center gap-1.5 flex-1 min-w-0"
+          draggable={isDesktop}
+          onDragStart={onDragStart}
+        >
+          <Mic className={`h-3.5 w-3.5 ${themeColors.text} shrink-0`} />
+          {isRenaming ? (
+            <input
+              ref={renameInputRef}
+              type="text"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onBlur={() => {
+                if (renameValue.trim()) onRename?.(renameValue.trim());
+                setIsRenaming(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  if (renameValue.trim()) onRename?.(renameValue.trim());
+                  setIsRenaming(false);
+                }
+                if (e.key === "Escape") {
+                  setRenameValue(voice.name);
+                  setIsRenaming(false);
+                }
+              }}
+              className="flex-1 min-w-0 px-1 py-0.5 bg-white/10 border border-white/10 rounded text-xs text-slate-100 focus:outline-none focus:border-blue-500"
+              autoFocus
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <span
+              className={`font-display font-semibold text-xs tracking-wide truncate ${isDesktop ? 'cursor-pointer hover:text-blue-300 transition-colors' : ''}`}
+              title={voice.name}
+              onDoubleClick={() => {
+                if (isDesktop) {
+                  setRenameValue(voice.name);
+                  setIsRenaming(true);
+                  setTimeout(() => renameInputRef.current?.focus(), 0);
+                }
+              }}
+            >
+              {voice.name}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          {isDesktop && voice.audioData && onUnloadAudio && (
+            <button
+              onClick={onUnloadAudio}
+              className="p-1 rounded-md bg-white/5 border border-white/5 text-slate-500 hover:text-amber-400 hover:bg-amber-500/10 transition-colors cursor-pointer"
+              title="Unload audio"
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          )}
+          {isDesktop && !voice.audioData && onLoadAudio && (
+            <button
+              onClick={onLoadAudio}
+              className="p-1 rounded-md bg-blue-500/15 border border-blue-500/20 text-blue-400 hover:bg-blue-500/25 transition-colors cursor-pointer"
+              title="Load audio file"
+            >
+              <Upload className="h-3 w-3" />
+            </button>
+          )}
+          {isDesktop && onRemoveTrack && (
+            <button
+              onClick={onRemoveTrack}
+              className="p-1 rounded-md bg-white/5 border border-white/5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+              title="Remove track"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -215,12 +377,7 @@ const ChannelStripComponent: React.FC<ChannelStripProps> = ({
               className="absolute w-6 h-6 rounded-full bg-white shadow-[0_0_15px_rgba(255,255,255,0.35)] will-change-[bottom] cursor-grab active:cursor-grabbing flex items-center justify-center z-10"
               style={{ 
                 bottom: `calc(${isDragging ? dragVolume : voice.volume} * 100% - 12px)`,
-                border: `4px solid ${
-                  voice.color === "indigo" ? "#3b82f6" :
-                  voice.color === "pink" ? "#ec4899" :
-                  voice.color === "sky" ? "#0ea5e9" :
-                  voice.color === "emerald" ? "#10b981" : "#f59e0b"
-                }`
+                border: `4px solid ${accentHex}`
               }}
             >
               <div className="w-1 h-1 bg-slate-900 rounded-full" />
@@ -230,10 +387,47 @@ const ChannelStripComponent: React.FC<ChannelStripProps> = ({
           <div className="text-[10px] font-mono text-slate-500 mt-1">-60</div>
         </div>
 
-        {/* S/M buttons — right side in landscape, bottom in portrait */}
-        <div className={`${expanded ? 'flex flex-col justify-center gap-2 shrink-0' : 'w-7 min-w-[28px] flex flex-col h-full gap-1.5 shrink-0 justify-end'}`}>
+        {/* Controls column — Pan knob, Solo, Mute */}
+        <div className={`${expanded ? 'flex flex-col items-center justify-center gap-2 shrink-0' : 'w-7 min-w-[28px] flex flex-col h-full gap-1.5 shrink-0 justify-end'}`}>
           {expanded ? (
             <>
+              {/* Rotary Pan Knob */}
+              <div className="flex flex-col items-center gap-0.5">
+                <div
+                  ref={knobRef}
+                  onPointerDown={handleKnobPointerDown}
+                  onPointerMove={handleKnobPointerMove}
+                  onPointerUp={handleKnobPointerUp}
+                  className="relative w-10 h-10 rounded-full bg-white/5 border border-white/10 cursor-grab active:cursor-grabbing touch-none select-none"
+                  title={`Pan: ${panValue < 0 ? "L" : panValue > 0 ? "R" : "C"}${Math.abs(Math.round(panValue * 100))}%`}
+                >
+                  <svg viewBox="0 0 40 40" className="absolute inset-0 w-full h-full">
+                    {/* Arc track */}
+                    <circle cx="20" cy="20" r="16" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="2.5"
+                      strokeDasharray="67.5 34.5" strokeDashoffset="0"
+                      transform="rotate(135 20 20)" strokeLinecap="round" />
+                    {/* Active arc — path from center (270°) toward L or R */}
+                    {(() => {
+                      const d = arcPath(20, 20, 16, 270, panValue * 135);
+                      return d ? (
+                        <path d={d} fill="none" stroke={accentHex} strokeWidth="2.5" opacity="0.6" strokeLinecap="round" />
+                      ) : null;
+                    })()}
+                    {/* Center tick */}
+                    <line x1="20" y1="20" x2="20" y2="7" stroke="rgba(255,255,255,0.15)" strokeWidth="1" />
+                  </svg>
+                  {/* Indicator dot */}
+                  <div
+                    className="absolute w-2 h-2 rounded-full bg-white shadow-[0_0_6px_rgba(255,255,255,0.5)] pointer-events-none"
+                    style={{
+                      left: `calc(50% + ${indicatorX}px - 4px)`,
+                      top: `calc(50% + ${indicatorY}px - 4px)`,
+                    }}
+                  />
+                </div>
+                <span className="text-[8px] font-mono text-slate-500 tracking-wider">PAN</span>
+              </div>
+
               <button
                 id={`solo-${voice.id}`}
                 onClick={onSoloToggle}
@@ -259,7 +453,6 @@ const ChannelStripComponent: React.FC<ChannelStripProps> = ({
             </>
           ) : (
           <>
-            {/* Full: VOL display + PAN + M/S */}
             <div className="flex items-center justify-between text-xs text-slate-300 bg-white/5 border border-white/5 px-2 py-1 rounded-lg font-mono">
               <span className="text-[9px] text-slate-500">VOL:</span>
               <span className="text-slate-100 font-medium text-[11px]">

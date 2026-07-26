@@ -233,6 +233,29 @@ export async function parseHymnZip(file: File, userPassword?: string): Promise<H
     }
   }
 
+  // Look for a PDF sheet file inside the ZIP
+  let sheetName: string | undefined;
+  let sheetData: ArrayBuffer | undefined;
+  const pdfEntry = entries.find(
+    (entry) => !entry.directory && entry.filename.toLowerCase().endsWith(".pdf")
+  );
+
+  if (pdfEntry) {
+    try {
+      const dataView = await pdfEntry.getData(new Uint8ArrayWriter(), {
+        password: workingPassword,
+      });
+      sheetData = dataView.buffer.slice(
+        dataView.byteOffset,
+        dataView.byteOffset + dataView.byteLength
+      );
+      const parts = pdfEntry.filename.replace(/\\/g, "/").split("/");
+      sheetName = cleanName(parts[parts.length - 1] || pdfEntry.filename);
+    } catch (err) {
+      console.error("Failed to read PDF sheet:", err);
+    }
+  }
+
   await reader.close();
 
   if (voices.length === 0) {
@@ -254,6 +277,8 @@ export async function parseHymnZip(file: File, userPassword?: string): Promise<H
     arranger: infoMetadata.arranger,
     info: infoMetadata.info,
     tags: infoMetadata.tags,
+    sheetName,
+    sheetData,
   };
 }
 

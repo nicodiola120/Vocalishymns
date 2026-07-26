@@ -1,10 +1,9 @@
 import React, { useState } from "react";
 import { Hymn } from "../types";
-import { Search, Music, Plus, RotateCw, Trash2, Database, Cloud, Download, Check, Loader2, Tv } from "lucide-react";
+import { Search, Music, Plus, RotateCw, Trash2, Share2, Database, Cloud, Download, Check, Loader2, Tv } from "lucide-react";
 import { ONLINE_REPOSITORY, OnlineHymnItem } from "../lib/onlineRepository";
-import { isHymnUnlocked, unlockHymn, initializeAds } from "../lib/ads";
+import { isHymnUnlocked, unlockHymn } from "../lib/ads";
 import { AdPromptModal } from "./AdPromptModal";
-import { BannerAd } from "./BannerAd";
 
 interface HymnListProps {
   hymns: Hymn[];
@@ -16,6 +15,7 @@ interface HymnListProps {
   assignedFolderName: string;
   onFolderClick: () => void;
   onDownloadOnlineHymn?: (item: OnlineHymnItem, onProgress: (msg: string) => void) => Promise<void>;
+  onShareHymn?: (hymn: Hymn) => void;
 }
 
 export const HymnList: React.FC<HymnListProps> = ({
@@ -28,6 +28,7 @@ export const HymnList: React.FC<HymnListProps> = ({
   assignedFolderName,
   onFolderClick,
   onDownloadOnlineHymn,
+  onShareHymn,
 }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -53,11 +54,6 @@ export const HymnList: React.FC<HymnListProps> = ({
       handleRefreshCloud();
     }
   }, [activeTab, hasRefreshedOnce, isRefreshingCloud]);
-
-  // Initialize the ad system
-  React.useEffect(() => {
-    initializeAds();
-  }, []);
 
   const handleRefreshCloud = async () => {
     setIsRefreshingCloud(true);
@@ -329,6 +325,23 @@ export const HymnList: React.FC<HymnListProps> = ({
                           {formatDuration(hymn.duration)}
                         </span>
                         
+                        {/* Share Button — only for unlocked or demo hymns */}
+                        {onShareHymn && (hymn.isDemo || isHymnUnlocked(hymn.name)) && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onShareHymn(hymn);
+                            }}
+                            className={`p-1 rounded opacity-60 sm:opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer ${
+                              isActive 
+                                ? "text-blue-300 hover:text-white hover:bg-blue-700/30" 
+                                : "text-slate-500 hover:text-indigo-400 hover:bg-white/5"
+                            }`}
+                            title="Share via WiFi"
+                          >
+                            <Share2 className="h-3 w-3" />
+                          </button>
+                        )}
                         {/* Delete Button (Visible on mobile/touch, and on hover for desktop) */}
                         <button
                           id={`delete-hymn-${hymn.id}`}
@@ -442,9 +455,6 @@ export const HymnList: React.FC<HymnListProps> = ({
         )}
       </div>
 
-
-      {/* Banner ad */}
-      <BannerAd onPurchase={() => setPurchaseVersion(v => v + 1)} />
 
       {/* Sidebar Bottom Utilities */}
       <div className="p-3 border-t border-white/5 flex items-center justify-center bg-transparent">

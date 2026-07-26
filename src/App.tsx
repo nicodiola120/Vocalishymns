@@ -1,20 +1,30 @@
 import { useState, useEffect, useRef, FormEvent } from "react";
 import { Hymn, Voice } from "./types";
 import { player } from "./lib/audioEngine";
-import { getAllHymns, saveHymn, deleteHymn } from "./lib/db";
+import { getAllHymns, saveHymn, saveHymnMeta, deleteHymn, loadVoiceAudio } from "./lib/db";
 import { generateDemoHymns } from "./lib/demoHymns";
 import { downloadAndSynthesizeOnlineHymn, OnlineHymnItem } from "./lib/onlineRepository";
-import { pickFolder, pickZipFiles, getStoredHandle, listZipFiles, writeZipToFolder, readZipFromFolder, deleteZipFromFolder } from "./lib/folderManager";
+import { pickFolder, pickZipFiles, getStoredHandle, listZipFiles, writeZipToFolder, readZipFromFolder, deleteZipFromFolder, isNativePlatform, isElectronPlatform, pickAudioFile, saveZipToFile } from "./lib/folderManager";
+import { encodeMp3 } from "./lib/mp3Encoder";
+import { ZipWriter, BlobWriter, TextReader, Uint8ArrayReader } from "@zip.js/zip.js";
 import { HymnList } from "./components/HymnList";
 import { PlaybackControls } from "./components/PlaybackControls";
 import { ChannelStrip } from "./components/ChannelStrip";
 import { Dropzone } from "./components/Dropzone";
 import { Toast, ToastMessage } from "./components/Toast";
-import { BannerAd } from "./components/BannerAd";
+
 import { SettingsModal } from "./components/SettingsModal";
+import ShareSheet from "./components/ShareSheet";
+import ReceivePrompt from "./components/ReceivePrompt";
+import SheetViewer from "./components/SheetViewer";
+import { ExportModal, ExportMetadata } from "./components/ExportModal";
+import { HymnPreviewModal } from "./components/HymnPreviewModal";
+import { WiFiShare as WiFiShareBridge, TransferRequest } from "./lib/wiFiShare";
+import { initializeAds, showBanner, removeBanner, isBannerShowing } from "./lib/ads";
 import { motion, AnimatePresence } from "motion/react";
-import { Sliders, Volume2, Plus, Info, RefreshCw, X, Edit3, Music, Library, Settings, AlertTriangle, Folder, FolderOpen, ArrowRight, Check, Play, Pause, Square, Repeat } from "lucide-react";
+import { Sliders, Volume2, Plus, Info, RefreshCw, X, Edit3, Music, Library, Settings, AlertTriangle, Folder, FolderOpen, ArrowRight, Check, Play, Pause, Square, Repeat, Wifi, WifiOff, Download } from "lucide-react";
 import { LiveUpdate } from "@capawesome/capacitor-live-update";
+
 
 const VOICE_ORDER: Record<string, number> = {
   soprano: 1,
@@ -62,6 +72,7 @@ export default function App() {
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
   const [isLoadingActiveHymn, setIsLoadingActiveHymn] = useState(false);
   const [loadProgress, setLoadProgress] = useState(0);
+  const [bannerVisible, setBannerVisible] = useState(false);
 
   const [showImportModal, setShowImportModal] = useState(false);
   const [showRenameModal, setShowRenameModal] = useState(false);
@@ -71,6 +82,20 @@ export default function App() {
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem("vocalis_dark_mode") !== "false");
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showResetConfirmModal, setShowResetConfirmModal] = useState(false);
+
+  // Sheet viewer
+  const [showSheetViewer, setShowSheetViewer] = useState(false);
+
+  // Export modal
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [previewHymn, setPreviewHymn] = useState<Hymn | null>(null);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const previewFileRef = useRef<File | null>(null);
+
+  // WiFi Share
+  const [sharingHymn, setSharingHymn] = useState<Hymn | null>(null);
+  const [incomingTransfer, setIncomingTransfer] = useState<TransferRequest | null>(null);
+  const [wifiShareEnabled, setWifiShareEnabled] = useState(false);
   const [movingHymnId, setMovingHymnId] = useState<string | null>(null);
   const [moveFolderInput, setMoveFolderInput] = useState<string>("");
 
@@ -104,9 +129,78 @@ export default function App() {
     document.documentElement.setAttribute("data-theme", isDarkMode ? "dark" : "light");
   }, [isDarkMode]);
 
+  // Initialize AdMob and show banner (skip on Electron)
+  useEffect(() => {
+    if (isElectronPlatform()) return;
+
+    initializeAds().then(() => showBanner()).then(() => setBannerVisible(isBannerShowing()));
+
+    const mq = window.matchMedia('(orientation: portrait)');
+    const onRotate = () => {
+      showBanner().then(() => setBannerVisible(isBannerShowing()));
+    };
+    mq.addEventListener('change', onRotate);
+    return () => mq.removeEventListener('change', onRotate);
+  }, []);
+
+  // WiFi Share background listener for incoming transfers
+  useEffect(() => {
+    if (!wifiShareEnabled) return;
+
+    let cancelled = false;
+    let transferListenerId: string | null = null;
+    let errorListenerId: string | null = null;
+
+    async function startWiFiShare() {
+      try {
+        await WiFiShareBridge.startListening('Choralis');
+        if (cancelled) return;
+
+        transferListenerId = WiFiShareBridge.onTransferRequest((req) => {
+          if (!cancelled) setIncomingTransfer(req);
+        });
+
+        errorListenerId = WiFiShareBridge.onError((msg) => {
+          if (!cancelled) pushToast('error', msg);
+        });
+      } catch (e: any) {
+        if (!cancelled) pushToast('error', e.message || 'WiFi Share failed to start');
+      }
+    }
+
+    startWiFiShare();
+
+    return () => {
+      cancelled = true;
+      if (transferListenerId) WiFiShareBridge.removeListener('transferRequest', transferListenerId);
+      if (errorListenerId) WiFiShareBridge.removeListener('serverError', errorListenerId);
+      WiFiShareBridge.stopListening();
+    };
+  }, [wifiShareEnabled]);
+
   // Initialize: restore folder handle, scan folder, load library
   useEffect(() => {
     const initializeLibrary = async () => {
+      // Desktop Electron mode: always start empty
+      if (isElectronPlatform()) {
+        const desktopHymn: Hymn = {
+          id: `desktop-${Date.now()}`,
+          name: "Untitled Project",
+          voices: [
+            { id: "v-soprano", name: "Soprano", color: "pink", volume: 0.8, isMuted: false, isSolo: false, pan: 0 },
+            { id: "v-alto", name: "Alto", color: "indigo", volume: 0.8, isMuted: false, isSolo: false, pan: 0 },
+            { id: "v-tenor", name: "Tenor", color: "sky", volume: 0.8, isMuted: false, isSolo: false, pan: 0 },
+            { id: "v-bass", name: "Bass", color: "emerald", volume: 0.8, isMuted: false, isSolo: false, pan: 0 },
+            { id: "v-instrumental", name: "Instrumental", color: "amber", volume: 0.8, isMuted: false, isSolo: false, pan: 0 },
+          ],
+          duration: 0,
+          createdAt: Date.now(),
+        };
+        setActiveHymn(desktopHymn);
+        setShowMixer(true);
+        return;
+      }
+
       try {
         // Try to restore folder handle from previous session
         const storedHandle = await getStoredHandle();
@@ -157,6 +251,7 @@ export default function App() {
       try {
         const file = await readZipFromFolder(fileHandle);
         const hymn = await parseHymnZipWorker(file);
+        hymn.zipFile = name;
         await saveHymn(hymn);
         added++;
       } catch (err) {
@@ -249,8 +344,8 @@ export default function App() {
   useEffect(() => {
     const checkForUpdates = async () => {
       try {
-        const { isNativePlatform } = await import("@capacitor/core");
-        if (!isNativePlatform()) return;
+        const { Capacitor } = await import("@capacitor/core");
+        if (!Capacitor.isNativePlatform()) return;
 
         // Notify plugin app is ready (prevents rollback)
         await LiveUpdate.ready();
@@ -355,15 +450,70 @@ export default function App() {
     };
   }, [isPlaying, activeHymn, masterVolume]);
 
+  // Hydrate a lightweight hymn (from IndexedDB) with full audio data
+  const hydrateHymnAudio = async (hymn: Hymn): Promise<Hymn> => {
+    if (hymn.voices.some((v) => v.audioData)) return hymn;
+
+    if ((isNativePlatform() || isElectronPlatform()) && hymn.zipFile) {
+      const handle = folderHandle || await getStoredHandle();
+      if (!handle) throw new Error("No library folder set");
+
+      const zipFiles = await listZipFiles(handle);
+      const match = zipFiles.find((z) => z.name === hymn.zipFile);
+      if (!match) throw new Error(`ZIP not found: ${hymn.zipFile}`);
+
+      const file = await readZipFromFolder(match.fileHandle);
+      const { parseHymnZipWorker } = await import("./lib/zipParser");
+      const parsed = await parseHymnZipWorker(file);
+
+      const settingsMap = new Map(hymn.voices.map((v) => [v.name, v]));
+      const mergedVoices = parsed.voices.map((v) => {
+        const saved = settingsMap.get(v.name);
+        return {
+          ...v,
+          volume: saved?.volume ?? v.volume,
+          isMuted: saved?.isMuted ?? v.isMuted,
+          isSolo: saved?.isSolo ?? v.isSolo,
+          pan: saved?.pan ?? v.pan,
+        };
+      });
+
+      return {
+        ...parsed,
+        ...hymn,
+        voices: mergedVoices,
+        sheetData: parsed.sheetData,
+        sheetName: parsed.sheetName,
+      };
+    }
+
+    const voices = await Promise.all(
+      hymn.voices.map(async (v) => {
+        const audioData = await loadVoiceAudio(hymn.id, v.id);
+        return { ...v, audioData };
+      })
+    );
+    return { ...hymn, voices };
+  };
+
   // Handles active hymn loading with progress bars
   const handleSelectHymn = async (hymn: Hymn) => {
     setIsLoadingActiveHymn(true);
     setLoadProgress(0);
     try {
       player.stop();
-      setActiveHymn(hymn);
-      await player.loadHymn(hymn, (progress) => {
-        setLoadProgress(progress);
+
+      let loadedHymn = hymn;
+      if (!hymn.voices.some((v) => v.audioData)) {
+        setLoadProgress(5);
+        loadedHymn = await hydrateHymnAudio(hymn);
+        setLoadProgress(15);
+      }
+
+      setActiveHymn(loadedHymn);
+      if (isElectronPlatform()) setShowMixer(true);
+      await player.loadHymn(loadedHymn, (progress) => {
+        setLoadProgress(15 + progress * 0.85);
       });
       // Capture calculated audio buffer durations
       const state = player.getPlaybackState();
@@ -372,8 +522,8 @@ export default function App() {
 
       // Persist the actual calculated duration in IndexedDB and component state if it differs
       if (state.duration > 0 && Math.abs((hymn.duration || 0) - state.duration) > 0.5) {
-        const updatedHymn = { ...hymn, duration: state.duration };
-        await saveHymn(updatedHymn);
+        const updatedHymn = { ...loadedHymn, duration: state.duration };
+        await saveHymnMeta(updatedHymn);
         setActiveHymn(updatedHymn);
         setHymns((prevHymns) =>
           prevHymns.map((h) => (h.id === hymn.id ? updatedHymn : h))
@@ -396,6 +546,16 @@ export default function App() {
       // Lazy load Zip parser dynamically to optimize bundle load sizes
       const { parseHymnZipWorker } = await import("./lib/zipParser");
       const hymn = await parseHymnZipWorker(file);
+
+      // On Electron desktop: show preview modal first
+      if (isElectronPlatform()) {
+        previewFileRef.current = file;
+        setPreviewHymn(hymn);
+        setShowPreviewModal(true);
+        setIsImporting(false);
+        return;
+      }
+
       hymn.folder = importFolder || assignedFolderName || "offline-cache";
 
       // Write ZIP to assigned folder
@@ -403,6 +563,7 @@ export default function App() {
       const zipFileName = file.name.endsWith(".zip") ? file.name : `${file.name}.zip`;
       await writeToFolder(zipFileName, arrayBuffer);
 
+      hymn.zipFile = zipFileName;
       await saveHymn(hymn);
 
       const loaded = await getAllHymns();
@@ -429,6 +590,34 @@ export default function App() {
     }
   };
 
+  const handleConfirmImport = async () => {
+    if (!previewHymn) return;
+    setIsImporting(true);
+    try {
+      const file = previewFileRef.current;
+      previewHymn.folder = importFolder || assignedFolderName || "offline-cache";
+
+      if (file) {
+        const arrayBuffer = await file.arrayBuffer();
+        const zipFileName = file.name.endsWith(".zip") ? file.name : `${file.name}.zip`;
+        await writeToFolder(zipFileName, arrayBuffer);
+        previewHymn.zipFile = zipFileName;
+      }
+
+      await saveHymn(previewHymn);
+      const loaded = await getAllHymns();
+      setHymns(loaded);
+      pushToast("success", `Imported "${previewHymn.name}"`);
+      handleSelectHymn(previewHymn);
+      setShowPreviewModal(false);
+      setPreviewHymn(null);
+    } catch (err: any) {
+      setImportError(err.message || "Failed to import.");
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   const handlePasswordSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!pendingZipFile) return;
@@ -445,6 +634,7 @@ export default function App() {
       const zipFileName = pendingZipFile.name.endsWith(".zip") ? pendingZipFile.name : `${pendingZipFile.name}.zip`;
       await writeToFolder(zipFileName, arrayBuffer);
 
+      hymn.zipFile = zipFileName;
       await saveHymn(hymn);
 
       const loaded = await getAllHymns();
@@ -499,7 +689,7 @@ export default function App() {
       const target = hymns.find((h) => h.id === hymnId);
       if (!target) return;
       const updated = { ...target, folder: destFolder.trim() || "offline-cache" };
-      await saveHymn(updated);
+      await saveHymnMeta(updated);
       
       const loaded = await getAllHymns();
       setHymns(loaded);
@@ -555,7 +745,7 @@ export default function App() {
     // Debounce only the IndexedDB write
     if (volumeSaveTimerRef.current) clearTimeout(volumeSaveTimerRef.current);
     volumeSaveTimerRef.current = setTimeout(() => {
-      saveHymn(updatedHymn);
+      saveHymnMeta(updatedHymn);
     }, 500);
   };
 
@@ -573,7 +763,7 @@ export default function App() {
     player.updateActiveHymn(updatedHymn);
     player.updateAllVoiceGains();
     setActiveHymn(updatedHymn);
-    await saveHymn(updatedHymn);
+    await saveHymnMeta(updatedHymn);
   };
 
   // Mute logic (silence track state)
@@ -590,7 +780,7 @@ export default function App() {
     player.updateActiveHymn(updatedHymn);
     player.updateAllVoiceGains();
     setActiveHymn(updatedHymn);
-    await saveHymn(updatedHymn);
+    await saveHymnMeta(updatedHymn);
   };
 
   // Modifies channel pan levels and pushes them into Audio Engine and DB state
@@ -610,7 +800,7 @@ export default function App() {
       player.updateVoicePan(targetVoice);
     }
     setActiveHymn(updatedHymn);
-    await saveHymn(updatedHymn);
+    await saveHymnMeta(updatedHymn);
   };
 
   const handleResetMixer = async () => {
@@ -627,7 +817,7 @@ export default function App() {
     player.updateAllVoiceGains();
     defaultVoices.forEach((v) => player.updateVoicePan(v));
     setActiveHymn(updatedHymn);
-    await saveHymn(updatedHymn);
+    await saveHymnMeta(updatedHymn);
     setMasterVolume(0.8);
     player.setMasterVolume(0.8);
     pushToast("success", "Mixer reset to defaults");
@@ -643,6 +833,7 @@ export default function App() {
       if (result.zipData) {
         const zipFileName = `${item.name.replace(/[^a-zA-Z0-9 ]/g, "").replace(/\s+/g, "_")}.zip`;
         await writeToFolder(zipFileName, result.zipData);
+        downloadedHymn.zipFile = zipFileName;
       }
       
       // Save it to IndexedDB
@@ -668,7 +859,7 @@ export default function App() {
   const handleRenameCommit = async () => {
     if (!activeHymn || !renameValue.trim()) return;
     const updated = { ...activeHymn, name: renameValue.trim() };
-    await saveHymn(updated);
+    await saveHymnMeta(updated);
     setActiveHymn(updated);
     
     // Reload list
@@ -678,11 +869,181 @@ export default function App() {
     pushToast("success", `Renamed to "${renameValue.trim()}"`);
   };
 
+  // Desktop: Load audio file into a specific voice channel
+  const handleLoadAudioToVoice = async (voiceId: string) => {
+    if (!activeHymn) return;
+    try {
+      const file = await pickAudioFile();
+      if (!file) return;
+      const arrayBuffer = await file.arrayBuffer();
+      const updatedVoices = activeHymn.voices.map((v) => {
+        if (v.id === voiceId) {
+          return { ...v, audioData: arrayBuffer };
+        }
+        return v;
+      });
+      const updatedHymn = { ...activeHymn, voices: updatedVoices };
+      setActiveHymn(updatedHymn);
+      await player.loadHymn(updatedHymn);
+      const state = player.getPlaybackState();
+      setDuration(state.duration);
+      setCurrentTime(0);
+      pushToast("success", `Loaded "${file.name}"`);
+    } catch (err: any) {
+      pushToast("error", err.message || "Failed to load audio file");
+    }
+  };
+
+  // Desktop: Add a new empty voice channel
+  const handleAddTrack = () => {
+    if (!activeHymn) return;
+    const count = activeHymn.voices.length + 1;
+    const colors = ["pink", "indigo", "sky", "emerald", "amber", "rose", "cyan", "violet"];
+    const newVoice: Voice = {
+      id: `v-track-${Date.now()}`,
+      name: `Track ${count}`,
+      color: colors[count % colors.length],
+      volume: 0.8,
+      isMuted: false,
+      isSolo: false,
+      pan: 0,
+    };
+    const updatedHymn = { ...activeHymn, voices: [...activeHymn.voices, newVoice] };
+    setActiveHymn(updatedHymn);
+    pushToast("success", `Added "${newVoice.name}"`);
+  };
+
+  // Desktop: Remove a voice channel
+  const handleRemoveTrack = async (voiceId: string) => {
+    if (!activeHymn || activeHymn.voices.length <= 1) return;
+    player.stop();
+    const updatedVoices = activeHymn.voices.filter((v) => v.id !== voiceId);
+    const updatedHymn = { ...activeHymn, voices: updatedVoices };
+    setActiveHymn(updatedHymn);
+    if (updatedVoices.some((v) => v.audioData)) {
+      await player.loadHymn(updatedHymn);
+    }
+  };
+
+  // Desktop: Rename a voice channel
+  const handleRenameVoice = async (voiceId: string, newName: string) => {
+    if (!activeHymn) return;
+    const updatedVoices = activeHymn.voices.map((v) => {
+      if (v.id === voiceId) return { ...v, name: newName };
+      return v;
+    });
+    const updatedHymn = { ...activeHymn, voices: updatedVoices };
+    setActiveHymn(updatedHymn);
+  };
+
+  // Desktop: Unload audio from a voice channel
+  const handleUnloadAudio = async (voiceId: string) => {
+    if (!activeHymn) return;
+    player.stop();
+    const updatedVoices = activeHymn.voices.map((v) => {
+      if (v.id === voiceId) return { ...v, audioData: undefined };
+      return v;
+    });
+    const updatedHymn = { ...activeHymn, voices: updatedVoices };
+    setActiveHymn(updatedHymn);
+    if (updatedVoices.some((v) => v.audioData)) {
+      await player.loadHymn(updatedHymn);
+    }
+  };
+
+  // Desktop: Drag-to-reorder tracks
+  const [dragVoiceId, setDragVoiceId] = useState<string | null>(null);
+  const [dragOverVoiceId, setDragOverVoiceId] = useState<string | null>(null);
+
+  const handleDragStartVoice = (voiceId: string) => {
+    setDragVoiceId(voiceId);
+  };
+
+  const handleDragOverVoice = (e: React.DragEvent, voiceId: string) => {
+    e.preventDefault();
+    setDragOverVoiceId(voiceId);
+  };
+
+  const handleDropVoice = async (targetVoiceId: string) => {
+    if (!activeHymn || !dragVoiceId || dragVoiceId === targetVoiceId) {
+      setDragVoiceId(null);
+      setDragOverVoiceId(null);
+      return;
+    }
+    const voices = [...activeHymn.voices];
+    const fromIdx = voices.findIndex((v) => v.id === dragVoiceId);
+    const toIdx = voices.findIndex((v) => v.id === targetVoiceId);
+    if (fromIdx === -1 || toIdx === -1) {
+      setDragVoiceId(null);
+      setDragOverVoiceId(null);
+      return;
+    }
+    const [moved] = voices.splice(fromIdx, 1);
+    voices.splice(toIdx, 0, moved);
+    const updatedHymn = { ...activeHymn, voices };
+    setActiveHymn(updatedHymn);
+    setDragVoiceId(null);
+    setDragOverVoiceId(null);
+  };
+
+  // Desktop: Export project as ZIP
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportProject = async (meta: ExportMetadata) => {
+    if (!activeHymn || !isElectronPlatform()) return;
+    setIsExporting(true);
+    try {
+      const infoText = [
+        `Title: ${meta.title}`,
+        `Lyricist: ${meta.lyricist}`,
+        `Music: ${meta.music}`,
+        `Arrangement: ${meta.arrangement}`,
+        `Instruments: ${meta.instruments}`,
+        `Tags: ${meta.tags}`,
+        `Info: ${meta.info}`,
+      ].join("\n");
+
+      const blobWriter = new BlobWriter("application/zip");
+      const zipWriter = new ZipWriter(blobWriter, meta.password ? { password: meta.password } : {});
+
+      await zipWriter.add("info.txt", new TextReader(infoText));
+
+      if (meta.sheetData && meta.sheetName) {
+        await zipWriter.add(meta.sheetName, new Uint8ArrayReader(new Uint8Array(meta.sheetData)));
+      }
+
+      for (const voice of activeHymn.voices) {
+        if (voice.audioData) {
+          const filename = `${voice.name.replace(/[^a-zA-Z0-9 ]/g, "").replace(/\s+/g, "_")}.mp3`;
+          const raw = voice.audioData instanceof ArrayBuffer ? voice.audioData : voice.audioData.buffer;
+          const header = new Uint8Array(raw.slice(0, 4));
+          const isWav = header[0] === 0x52 && header[1] === 0x49 && header[2] === 0x46 && header[3] === 0x46;
+          const audioBytes = isWav ? new Uint8Array(await encodeMp3(raw)) : new Uint8Array(raw);
+          await zipWriter.add(filename, new Uint8ArrayReader(audioBytes));
+        }
+      }
+
+      await zipWriter.close();
+      const blob = await blobWriter.getData();
+      const arrayBuffer = await blob.arrayBuffer();
+      const safeName = meta.title.replace(/[^a-zA-Z0-9 _-]/g, "").replace(/\s+/g, "_") || "choralis-project";
+      const savedPath = await saveZipToFile(`${safeName}.zip`, arrayBuffer);
+      if (savedPath) {
+        pushToast("success", `Exported to ${savedPath.split(/[\\/]/).pop()}`);
+      }
+      setShowExportModal(false);
+    } catch (err: any) {
+      pushToast("error", err.message || "Failed to export project");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <div
       data-theme={isDarkMode ? "dark" : "light"}
       className={`flex flex-col h-screen w-screen overflow-hidden font-sans selection:bg-blue-500/30 selection:text-blue-200 ${isDarkMode ? "text-slate-100" : "text-slate-800"}`}
-      style={{ background: isDarkMode ? "radial-gradient(circle at 0% 0%, #141526 0%, #030408 100%)" : "radial-gradient(circle at 0% 0%, #f0f4ff 0%, #e2e8f0 100%)" }}>
+      style={{ background: isDarkMode ? "radial-gradient(circle at 0% 0%, #141526 0%, #030408 100%)" : "radial-gradient(circle at 0% 0%, #f0f4ff 0%, #e2e8f0 100%)", paddingBottom: bannerVisible ? "50px" : "0" }}>
       
       {/* Header bar — normal flow, hidden in mixer */}
       {!showMixer && (
@@ -698,6 +1059,19 @@ export default function App() {
               CHORALIS • Choir Voice Mixer
             </span>
           </div>
+          {WiFiShareBridge.isSupported() && (
+            <button
+              onClick={() => setWifiShareEnabled(!wifiShareEnabled)}
+              className={`p-1.5 rounded-lg cursor-pointer transition-colors ${
+                wifiShareEnabled
+                  ? "text-emerald-400 hover:bg-emerald-500/10 bg-emerald-500/10"
+                  : isDarkMode ? "text-slate-500 hover:bg-white/5" : "text-slate-500 hover:bg-black/5"
+              }`}
+              title={wifiShareEnabled ? "WiFi Share On" : "WiFi Share Off"}
+            >
+              {wifiShareEnabled ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
+            </button>
+          )}
           <button
             onClick={() => setShowSettingsModal(true)}
             className={`p-1.5 rounded-lg cursor-pointer transition-colors ${isDarkMode ? "text-slate-300 hover:bg-white/5" : "text-slate-600 hover:bg-black/5"}`}
@@ -742,6 +1116,7 @@ export default function App() {
                 assignedFolderName={assignedFolderName}
                 onFolderClick={handlePickFolder}
                 onDownloadOnlineHymn={handleDownloadOnlineHymn}
+                onShareHymn={(h) => setSharingHymn(h)}
               />
             </motion.div>
           )}
@@ -795,6 +1170,8 @@ export default function App() {
                     arranger={activeHymn.arranger}
                     info={activeHymn.info}
                     tags={activeHymn.tags}
+                    sheetName={activeHymn.sheetName}
+                    onViewSheet={() => setShowSheetViewer(true)}
                     showMixer={showMixer}
                     onToggleMixer={() => setShowMixer(!showMixer)}
                   />
@@ -810,21 +1187,34 @@ export default function App() {
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <h2 className="font-display font-bold text-slate-200 text-base sm:text-lg">
-                    No Track Selected
+                    Welcome to Choralis
                   </h2>
                   <p className="text-xs text-slate-500 leading-relaxed max-w-md">
-                    Select a hymn track from the sidebar to start practicing, or import a zipped choir pack to load custom multi-channel recordings.
+                    {isElectronPlatform()
+                      ? "Open a ZIP choir pack to start mixing, or select a hymn from the library."
+                      : "Select a hymn track from the sidebar to start practicing, or import a zipped choir pack to load custom multi-channel recordings."}
                   </p>
                 </div>
-                <button
-                  id="btn-blank-library"
-                  onClick={() => setShowHymnSidebar(true)}
-                  className="py-2.5 px-5 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs border border-blue-400/20 shadow-md shadow-blue-600/10 cursor-pointer"
-                >
-                  Open Library
-                </button>
+                <div className="flex gap-2">
+                  {isElectronPlatform() && (
+                    <button
+                      id="btn-blank-open-zip"
+                      onClick={handlePickFolder}
+                      className="py-2.5 px-5 rounded-2xl bg-green-600 hover:bg-green-500 text-white font-semibold text-xs border border-green-400/20 shadow-md shadow-green-600/10 cursor-pointer flex items-center gap-1.5"
+                    >
+                      <FolderOpen className="h-3.5 w-3.5" />
+                      Open ZIP
+                    </button>
+                  )}
+                  <button
+                    id="btn-blank-library"
+                    onClick={() => setShowHymnSidebar(true)}
+                    className="py-2.5 px-5 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs border border-blue-400/20 shadow-md shadow-blue-600/10 cursor-pointer"
+                  >
+                    Open Library
+                  </button>
+                </div>
               </div>
-              <BannerAd />
             </div>
           )}
 
@@ -845,6 +1235,21 @@ export default function App() {
                 <span className="text-[10px] font-semibold text-slate-400 truncate max-w-[120px]" title={activeHymn.name}>
                   {activeHymn.name}
                 </span>
+                {activeHymn.sheetName && (
+                  <button
+                    onClick={() => setShowSheetViewer(true)}
+                    className="shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 hover:bg-amber-500/20 transition-colors text-[10px] font-medium"
+                  >
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                      <polyline points="14 2 14 8 20 8"/>
+                      <line x1="16" y1="13" x2="8" y2="13"/>
+                      <line x1="16" y1="17" x2="8" y2="17"/>
+                      <polyline points="10 9 9 9 8 9"/>
+                    </svg>
+                    Sheet
+                  </button>
+                )}
                 {/* Scrub bar — landscape only */}
                 <div className="flex-1 min-w-0 hidden landscape:block">
                   <input
@@ -915,6 +1320,28 @@ export default function App() {
                   <RefreshCw className="h-3.5 w-3.5" />
                   <span className="hidden sm:inline">RESET</span>
                 </button>
+                {isElectronPlatform() && (
+                  <>
+                    <button
+                      id="btn-open-zip"
+                      onClick={handlePickFolder}
+                      className="p-1.5 rounded-lg bg-white/5 hover:bg-green-500/20 text-slate-400 hover:text-green-400 border border-white/10 hover:border-green-500/30 cursor-pointer transition-all text-xs font-bold flex items-center gap-1 shrink-0"
+                      title="Open ZIP file"
+                    >
+                      <FolderOpen className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">OPEN</span>
+                    </button>
+                    <button
+                      id="btn-export-project"
+                      onClick={() => setShowExportModal(true)}
+                      className="p-1.5 rounded-lg bg-white/5 hover:bg-blue-500/20 text-slate-400 hover:text-blue-400 border border-white/10 hover:border-blue-500/30 cursor-pointer transition-all text-xs font-bold flex items-center gap-1 shrink-0"
+                      title="Export project as ZIP"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">EXPORT</span>
+                    </button>
+                  </>
+                )}
                 <button
                   id="btn-close-mixer"
                   onClick={() => setShowMixer(false)}
@@ -957,7 +1384,7 @@ export default function App() {
                 </div>
               </div>
               <div className="flex-1 min-h-0 overflow-hidden px-4 lg:px-8 py-4 flex landscape:flex-row flex-col">
-                <div className="flex flex-row gap-3 w-full max-w-7xl mx-auto flex-1 min-h-0">
+                <div className="flex flex-row gap-3 w-full flex-1 min-h-0">
                   {[...activeHymn.voices]
                     .sort((a, b) => getVoiceOrder(a.name) - getVoiceOrder(b.name))
                     .map((voice) => (
@@ -970,17 +1397,31 @@ export default function App() {
                           onPanChange={(pan) => handleVoicePan(voice.id, pan)}
                           isPlaying={isPlaying}
                           expanded
+                          isDesktop={isElectronPlatform()}
+                          onLoadAudio={isElectronPlatform() ? () => handleLoadAudioToVoice(voice.id) : undefined}
+                          onUnloadAudio={isElectronPlatform() ? () => handleUnloadAudio(voice.id) : undefined}
+                          onRemoveTrack={isElectronPlatform() ? () => handleRemoveTrack(voice.id) : undefined}
+                          onRename={isElectronPlatform() ? (name) => handleRenameVoice(voice.id, name) : undefined}
+                          onDragStart={isElectronPlatform() ? () => handleDragStartVoice(voice.id) : undefined}
+                          onDragOver={isElectronPlatform() ? (e) => handleDragOverVoice(e, voice.id) : undefined}
+                          onDrop={isElectronPlatform() ? () => handleDropVoice(voice.id) : undefined}
+                          isDragTarget={dragOverVoiceId === voice.id}
                         />
                       </div>
                     ))}
-                </div>
-                <div className="landscape:hidden">
-                  <BannerAd />
-                </div>
-                <div className="hidden landscape:flex">
-                  <BannerAd vertical />
-                </div>
+                  {isElectronPlatform() && (
+                    <div className="flex-1 min-w-[120px] h-full flex flex-col items-center justify-center">
+                      <button
+                        onClick={handleAddTrack}
+                        className="flex flex-col items-center gap-2 p-4 rounded-2xl border-2 border-dashed border-white/10 hover:border-blue-500/30 hover:bg-blue-500/5 text-slate-500 hover:text-blue-400 transition-all cursor-pointer"
+                      >
+                        <Plus className="h-6 w-6" />
+                        <span className="text-[10px] font-semibold uppercase tracking-wider">New Track</span>
+                      </button>
+                    </div>
+                  )}
               </div>
+            </div>
             </div>
           )}
         </main>
@@ -1385,12 +1826,67 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* WiFi Share - Send Hymn */}
+      <ShareSheet
+        isOpen={sharingHymn !== null}
+        onClose={() => setSharingHymn(null)}
+        hymnName={sharingHymn?.name || ''}
+        filePath={sharingHymn ? WiFiShareBridge.getHymnFilePath(sharingHymn) : ''}
+        onSent={() => { setSharingHymn(null); pushToast('success', 'Hymn sent!'); }}
+      />
+
+      {/* WiFi Share - Receive Hymn */}
+      <ReceivePrompt
+        request={incomingTransfer}
+        onAccepted={async (hymnName) => {
+          setIncomingTransfer(null);
+          pushToast('success', `"${hymnName}" added to library!`);
+          const handle = folderHandle || await getStoredHandle();
+          if (handle) {
+            await syncFolderToLibrary(handle);
+          }
+        }}
+        onDismiss={() => setIncomingTransfer(null)}
+      />
+
+      {/* Sheet Music Viewer */}
+      <SheetViewer
+        isOpen={showSheetViewer}
+        title={activeHymn?.sheetName || activeHymn?.name || ''}
+        data={activeHymn?.sheetData || new ArrayBuffer(0)}
+        onClose={() => setShowSheetViewer(false)}
+      />
+
       {/* Settings Modal */}
       <SettingsModal
         isOpen={showSettingsModal}
         isDarkMode={isDarkMode}
         onToggleTheme={() => setIsDarkMode(!isDarkMode)}
         onClose={() => setShowSettingsModal(false)}
+        onAdsRemoved={async () => {
+          await removeBanner();
+          setBannerVisible(false);
+        }}
+      />
+
+      {/* Export Modal */}
+      <ExportModal
+        isOpen={showExportModal}
+        defaultTitle={activeHymn?.name || ""}
+        initialSheetName={activeHymn?.sheetName || ""}
+        initialSheetData={activeHymn?.sheetData || null}
+        isExporting={isExporting}
+        onExport={handleExportProject}
+        onClose={() => setShowExportModal(false)}
+      />
+
+      <HymnPreviewModal
+        isOpen={showPreviewModal}
+        hymn={previewHymn}
+        isImporting={isImporting}
+        onImport={handleConfirmImport}
+        onCancel={() => { setShowPreviewModal(false); setPreviewHymn(null); }}
+        error={importError}
       />
 
       {/* Toast notifications */}

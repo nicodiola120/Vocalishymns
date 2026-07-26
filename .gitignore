@@ -16,3 +16,16 @@ Thumbs.db
 
 # Android keystore
 vocalis-keystore.jks
+
+# Voucher generator (contains secret)
+scripts/generate-voucher.cjs
+voucher-generator.html
+
+# Build outputs
+dist-electron/
+build/
+*.aab
+generate-voucher.exe
+
+# Old lamejs bundle (replaced by @breezystack/lamejs)
+public/lamejs.bundle.js
