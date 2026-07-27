@@ -86,7 +86,7 @@ async function migrateIfNeeded(db: IDBDatabase): Promise<void> {
 
         for (const voice of hymn.voices) {
           if (voice.audioData) {
-            audioStore.put(voice.audioData, `${hymn.id}_${voice.id}`);
+            audioStore.put(abToB64(voice.audioData), `${hymn.id}_${voice.id}`);
           }
         }
 
@@ -122,6 +122,20 @@ export async function getAllHymns(): Promise<Hymn[]> {
   });
 }
 
+function abToB64(data: ArrayBuffer): string {
+  const bytes = new Uint8Array(data);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
+function b64ToAb(b64: string): ArrayBuffer {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes.buffer;
+}
+
 export async function saveHymn(hymn: Hymn): Promise<void> {
   const db = await initDB();
   return new Promise((resolve, reject) => {
@@ -135,7 +149,7 @@ export async function saveHymn(hymn: Hymn): Promise<void> {
       if (hymn.voices) {
         for (const voice of hymn.voices) {
           if (voice.audioData) {
-            audioStore.put(voice.audioData, `${hymn.id}_${voice.id}`);
+            audioStore.put(abToB64(voice.audioData), `${hymn.id}_${voice.id}`);
           }
         }
       }
@@ -191,7 +205,11 @@ export async function loadVoiceAudio(
     const tx = db.transaction(AUDIO_STORE, "readonly");
     const store = tx.objectStore(AUDIO_STORE);
     const req = store.get(`${hymnId}_${voiceId}`);
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      const val = req.result;
+      if (typeof val === "string") resolve(b64ToAb(val));
+      else resolve(val);
+    };
     req.onerror = () => resolve(undefined);
   });
 }

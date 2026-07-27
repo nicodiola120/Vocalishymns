@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, FormEvent } from "react";
 import { Hymn, Voice } from "./types";
 import { player } from "./lib/audioEngine";
-import { getAllHymns, saveHymn, saveHymnMeta, deleteHymn, loadVoiceAudio } from "./lib/db";
+import { getAllHymns, saveHymn, saveHymnMeta, deleteHymn, loadVoiceAudio as loadVoiceAudioDB } from "./lib/db";
+import { loadVoiceAudio as loadVoiceAudioFS, persistHymnAudio, deleteVoiceAudio } from "./lib/audioStorage";
 import { generateDemoHymns } from "./lib/demoHymns";
 import { downloadAndSynthesizeOnlineHymn, OnlineHymnItem } from "./lib/onlineRepository";
 import { pickFolder, pickZipFiles, getStoredHandle, listZipFiles, writeZipToFolder, readZipFromFolder, deleteZipFromFolder, isNativePlatform, isElectronPlatform, pickAudioFile, saveZipToFile } from "./lib/folderManager";
@@ -468,41 +469,47 @@ export default function App() {
 
     if ((isNativePlatform() || isElectronPlatform()) && hymn.zipFile) {
       const handle = folderHandle || await getStoredHandle();
-      if (!handle) throw new Error("No library folder set");
+      if (handle) {
+        try {
+          const zipFiles = await listZipFiles(handle);
+          const match = zipFiles.find((z) => z.name === hymn.zipFile);
+          if (match) {
+            const file = await readZipFromFolder(match.fileHandle);
+            const { parseHymnZipWorker } = await import("./lib/zipParser");
+            const parsed = await parseHymnZipWorker(file);
 
-      const zipFiles = await listZipFiles(handle);
-      const match = zipFiles.find((z) => z.name === hymn.zipFile);
-      if (!match) throw new Error(`ZIP not found: ${hymn.zipFile}`);
+            const settingsMap = new Map(hymn.voices.map((v) => [v.name, v]));
+            const mergedVoices = parsed.voices.map((v) => {
+              const saved = settingsMap.get(v.name);
+              return {
+                ...v,
+                volume: saved?.volume ?? v.volume,
+                isMuted: saved?.isMuted ?? v.isMuted,
+                isSolo: saved?.isSolo ?? v.isSolo,
+                pan: saved?.pan ?? v.pan,
+              };
+            });
 
-      const file = await readZipFromFolder(match.fileHandle);
-      const { parseHymnZipWorker } = await import("./lib/zipParser");
-      const parsed = await parseHymnZipWorker(file);
-
-      const settingsMap = new Map(hymn.voices.map((v) => [v.name, v]));
-      const mergedVoices = parsed.voices.map((v) => {
-        const saved = settingsMap.get(v.name);
-        return {
-          ...v,
-          volume: saved?.volume ?? v.volume,
-          isMuted: saved?.isMuted ?? v.isMuted,
-          isSolo: saved?.isSolo ?? v.isSolo,
-          pan: saved?.pan ?? v.pan,
-        };
-      });
-
-      return {
-        ...parsed,
-        ...hymn,
-        voices: mergedVoices,
-        sheetData: parsed.sheetData,
-        sheetName: parsed.sheetName,
-      };
+            return {
+              ...parsed,
+              ...hymn,
+              voices: mergedVoices,
+              sheetData: parsed.sheetData,
+              sheetName: parsed.sheetName,
+            };
+          }
+        } catch (e) {
+          console.warn("[Hydrate] ZIP recovery failed, falling back to stored audio:", e);
+        }
+      }
     }
 
     const voices = await Promise.all(
       hymn.voices.map(async (v) => {
-        const audioData = await loadVoiceAudio(hymn.id, v.id);
-        return { ...v, audioData };
+        const fs = await loadVoiceAudioFS(hymn.id, v.id);
+        if (fs && fs.byteLength > 0) return { ...v, audioData: fs };
+        const db = await loadVoiceAudioDB(hymn.id, v.id);
+        return { ...v, audioData: db || undefined };
       })
     );
     return { ...hymn, voices };
@@ -577,6 +584,7 @@ export default function App() {
 
       hymn.zipFile = zipFileName;
       await saveHymn(hymn);
+      persistHymnAudio(hymn).catch(() => {});
 
       const loaded = await getAllHymns();
       setHymns(loaded);
@@ -617,6 +625,7 @@ export default function App() {
       }
 
       await saveHymn(previewHymn);
+      persistHymnAudio(previewHymn).catch(() => {});
       const loaded = await getAllHymns();
       setHymns(loaded);
       pushToast("success", `Imported "${previewHymn.name}"`);
@@ -648,6 +657,7 @@ export default function App() {
 
       hymn.zipFile = zipFileName;
       await saveHymn(hymn);
+      persistHymnAudio(hymn).catch(() => {});
 
       const loaded = await getAllHymns();
       setHymns(loaded);
@@ -683,6 +693,7 @@ export default function App() {
         setActiveHymn(null);
       }
       await deleteHymn(id);
+      deleteVoiceAudio(id).catch(() => {});
       const loaded = await getAllHymns();
       setHymns(loaded);
       if (loaded.length > 0) {
@@ -725,6 +736,7 @@ export default function App() {
     const loaded = await getAllHymns();
     for (const h of loaded) {
       await deleteHymn(h.id);
+      deleteVoiceAudio(h.id).catch(() => {});
     }
 
     const demos = generateDemoHymns();
@@ -850,6 +862,7 @@ export default function App() {
       
       // Save it to IndexedDB
       await saveHymn(downloadedHymn);
+      persistHymnAudio(downloadedHymn).catch(() => {});
       
       // Update state
       setHymns((prev) => [downloadedHymn, ...prev]);
