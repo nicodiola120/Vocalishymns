@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Voice } from "../types";
 import { player } from "../lib/audioEngine";
-import { Volume2, VolumeX, Mic, Upload, X, Pencil, Trash2 } from "lucide-react";
+import { Volume2, VolumeX, Mic, Upload, X, Pencil, Trash2, GripVertical } from "lucide-react";
 
 function polarToXY(cx: number, cy: number, r: number, deg: number) {
   const rad = deg * Math.PI / 180;
@@ -271,15 +271,16 @@ const ChannelStripComponent: React.FC<ChannelStripProps> = ({
     >
       {/* Header Info */}
       <div
-        className={`flex items-center justify-between mb-2 border-b border-white/5 pb-2 ${isDesktop && isDragTarget ? 'border-blue-500/40 bg-blue-500/5' : ''}`}
+        className={`flex items-center justify-between mb-2 border-b border-white/5 pb-2 ${isDragTarget ? 'border-blue-500/40 bg-blue-500/5' : ''}`}
         onDragOver={onDragOver}
         onDrop={onDrop}
       >
         <div
-          className="flex items-center gap-1.5 flex-1 min-w-0"
-          draggable={isDesktop}
+          className={`flex items-center gap-1.5 flex-1 min-w-0`}
+          draggable
           onDragStart={onDragStart}
         >
+          <GripVertical className="h-3 w-3 text-slate-600 shrink-0 cursor-grab active:cursor-grabbing" />
           <Mic className={`h-3.5 w-3.5 ${themeColors.text} shrink-0`} />
           {isRenaming ? (
             <input

@@ -1,8 +1,19 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { X, AlertCircle } from 'lucide-react';
-import * as pdfjsLib from 'pdfjs-dist';
-import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?worker';
-pdfjsLib.GlobalWorkerOptions.workerPort = new PdfWorker();
+
+type PdfjsLib = typeof import('pdfjs-dist');
+let pdfjsInstance: PdfjsLib | null = null;
+let pdfjsInitPromise: Promise<void> | null = null;
+async function ensurePdfjs() {
+  if (pdfjsInitPromise) return pdfjsInitPromise;
+  pdfjsInitPromise = (async () => {
+    const pdfjsLib = await import('pdfjs-dist');
+    const PdfWorker = (await import('pdfjs-dist/build/pdf.worker.min.mjs?worker')).default;
+    pdfjsLib.GlobalWorkerOptions.workerPort = new PdfWorker();
+    pdfjsInstance = pdfjsLib;
+  })();
+  return pdfjsInitPromise;
+}
 
 interface Props {
   isOpen: boolean;
@@ -33,7 +44,8 @@ export default function SheetViewer({ isOpen, title, data, onClose }: Props) {
       }
 
       try {
-        const pdf = await pdfjsLib.getDocument({ data: data.slice(0) }).promise;
+        await ensurePdfjs();
+        const pdf = await pdfjsInstance!.getDocument({ data: data.slice(0) }).promise;
         if (cancelled) return;
         const urls: string[] = [];
         for (let i = 1; i <= pdf.numPages; i++) {

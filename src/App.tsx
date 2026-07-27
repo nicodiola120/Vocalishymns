@@ -5,8 +5,7 @@ import { getAllHymns, saveHymn, saveHymnMeta, deleteHymn, loadVoiceAudio } from 
 import { generateDemoHymns } from "./lib/demoHymns";
 import { downloadAndSynthesizeOnlineHymn, OnlineHymnItem } from "./lib/onlineRepository";
 import { pickFolder, pickZipFiles, getStoredHandle, listZipFiles, writeZipToFolder, readZipFromFolder, deleteZipFromFolder, isNativePlatform, isElectronPlatform, pickAudioFile, saveZipToFile } from "./lib/folderManager";
-import { encodeMp3 } from "./lib/mp3Encoder";
-import { ZipWriter, BlobWriter, TextReader, Uint8ArrayReader } from "@zip.js/zip.js";
+
 import { HymnList } from "./components/HymnList";
 import { PlaybackControls } from "./components/PlaybackControls";
 import { ChannelStrip } from "./components/ChannelStrip";
@@ -20,10 +19,10 @@ import SheetViewer from "./components/SheetViewer";
 import { ExportModal, ExportMetadata } from "./components/ExportModal";
 import { HymnPreviewModal } from "./components/HymnPreviewModal";
 import { WiFiShare as WiFiShareBridge, TransferRequest } from "./lib/wiFiShare";
-import { initializeAds, showBanner, removeBanner, isBannerShowing } from "./lib/ads";
+
 import { motion, AnimatePresence } from "motion/react";
 import { Sliders, Volume2, Plus, Info, RefreshCw, X, Edit3, Music, Library, Settings, AlertTriangle, Folder, FolderOpen, ArrowRight, Check, Play, Pause, Square, Repeat, Wifi, WifiOff, Download } from "lucide-react";
-import { LiveUpdate } from "@capawesome/capacitor-live-update";
+
 
 
 const VOICE_ORDER: Record<string, number> = {
@@ -49,6 +48,12 @@ function getVoiceOrder(name: string): number {
 
 export default function App() {
   const [hymns, setHymns] = useState<Hymn[]>([]);
+
+  // Remove splash screen on first render
+  useEffect(() => {
+    const splash = document.getElementById('splash');
+    if (splash) splash.remove();
+  }, []);
   const [activeHymn, setActiveHymn] = useState<Hymn | null>(null);
 
   const [folderHandle, setFolderHandle] = useState<FileSystemDirectoryHandle | null>(null);
@@ -133,11 +138,16 @@ export default function App() {
   useEffect(() => {
     if (isElectronPlatform()) return;
 
-    initializeAds().then(() => showBanner()).then(() => setBannerVisible(isBannerShowing()));
+    const ads = import("./lib/ads");
+    ads.then(m => m.initializeAds()).then(() => ads.then(m => m.showBanner())).then(() => {
+      ads.then(m => setBannerVisible(m.isBannerShowing()));
+    });
 
     const mq = window.matchMedia('(orientation: portrait)');
     const onRotate = () => {
-      showBanner().then(() => setBannerVisible(isBannerShowing()));
+      ads.then(m => m.showBanner()).then(() => {
+        ads.then(m => setBannerVisible(m.isBannerShowing()));
+      });
     };
     mq.addEventListener('change', onRotate);
     return () => mq.removeEventListener('change', onRotate);
@@ -346,6 +356,8 @@ export default function App() {
       try {
         const { Capacitor } = await import("@capacitor/core");
         if (!Capacitor.isNativePlatform()) return;
+
+        const { LiveUpdate } = await import("@capawesome/capacitor-live-update");
 
         // Notify plugin app is ready (prevents rollback)
         await LiveUpdate.ready();
@@ -1003,6 +1015,7 @@ export default function App() {
         `Info: ${meta.info}`,
       ].join("\n");
 
+      const { ZipWriter, BlobWriter, TextReader, Uint8ArrayReader } = await import("@zip.js/zip.js");
       const blobWriter = new BlobWriter("application/zip");
       const zipWriter = new ZipWriter(blobWriter, meta.password ? { password: meta.password } : {});
 
@@ -1018,7 +1031,7 @@ export default function App() {
           const raw = voice.audioData instanceof ArrayBuffer ? voice.audioData : voice.audioData.buffer;
           const header = new Uint8Array(raw.slice(0, 4));
           const isWav = header[0] === 0x52 && header[1] === 0x49 && header[2] === 0x46 && header[3] === 0x46;
-          const audioBytes = isWav ? new Uint8Array(await encodeMp3(raw)) : new Uint8Array(raw);
+          const audioBytes = isWav ? new Uint8Array(await (await import("./lib/mp3Encoder")).encodeMp3(raw)) : new Uint8Array(raw);
           await zipWriter.add(filename, new Uint8ArrayReader(audioBytes));
         }
       }
@@ -1402,9 +1415,9 @@ export default function App() {
                           onUnloadAudio={isElectronPlatform() ? () => handleUnloadAudio(voice.id) : undefined}
                           onRemoveTrack={isElectronPlatform() ? () => handleRemoveTrack(voice.id) : undefined}
                           onRename={isElectronPlatform() ? (name) => handleRenameVoice(voice.id, name) : undefined}
-                          onDragStart={isElectronPlatform() ? () => handleDragStartVoice(voice.id) : undefined}
-                          onDragOver={isElectronPlatform() ? (e) => handleDragOverVoice(e, voice.id) : undefined}
-                          onDrop={isElectronPlatform() ? () => handleDropVoice(voice.id) : undefined}
+                          onDragStart={() => handleDragStartVoice(voice.id)}
+                          onDragOver={(e) => handleDragOverVoice(e, voice.id)}
+                          onDrop={() => handleDropVoice(voice.id)}
                           isDragTarget={dragOverVoiceId === voice.id}
                         />
                       </div>
@@ -1864,7 +1877,7 @@ export default function App() {
         onToggleTheme={() => setIsDarkMode(!isDarkMode)}
         onClose={() => setShowSettingsModal(false)}
         onAdsRemoved={async () => {
-          await removeBanner();
+          (await import("./lib/ads")).removeBanner();
           setBannerVisible(false);
         }}
       />

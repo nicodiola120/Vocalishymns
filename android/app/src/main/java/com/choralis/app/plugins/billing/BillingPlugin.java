@@ -10,6 +10,7 @@ import com.android.billingclient.api.BillingResult;
 import com.android.billingclient.api.ProductDetails;
 import com.android.billingclient.api.Purchase;
 import com.android.billingclient.api.PurchasesUpdatedListener;
+import com.android.billingclient.api.PendingPurchasesParams;
 import com.android.billingclient.api.QueryProductDetailsParams;
 import com.android.billingclient.api.QueryPurchasesParams;
 import com.getcapacitor.JSObject;
@@ -33,7 +34,7 @@ public class BillingPlugin extends Plugin implements PurchasesUpdatedListener {
         Context ctx = getContext();
         billingClient = BillingClient.newBuilder(ctx)
                 .setListener(this)
-                .enablePendingPurchases()
+                .enablePendingPurchases(PendingPurchasesParams.newBuilder().build())
                 .build();
 
         billingClient.startConnection(new BillingClientStateListener() {
@@ -75,13 +76,13 @@ public class BillingPlugin extends Plugin implements PurchasesUpdatedListener {
                 .setProductList(products)
                 .build();
 
-        billingClient.queryProductDetailsAsync(params, (result, productDetailsList) -> {
-            if (result.getResponseCode() != BillingClient.BillingResponseCode.OK || productDetailsList.isEmpty()) {
+        billingClient.queryProductDetailsAsync(params, (result, detailsResult) -> {
+            if (result.getResponseCode() != BillingClient.BillingResponseCode.OK || detailsResult.getProductDetailsList().isEmpty()) {
                 call.reject("Product not found. Make sure 'remove_ads' is configured in Play Console.");
                 return;
             }
 
-            ProductDetails productDetails = productDetailsList.get(0);
+            ProductDetails productDetails = detailsResult.getProductDetailsList().get(0);
 
             Activity activity = getActivity();
             BillingFlowParams flowParams = BillingFlowParams.newBuilder()
